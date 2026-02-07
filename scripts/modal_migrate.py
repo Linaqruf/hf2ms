@@ -490,3 +490,110 @@ def main(
         print("If this persists, check:")
         print("  - Modal account: modal token verify")
         print("  - Platform tokens: python scripts/validate_tokens.py")
+
+
+@app.local_entrypoint()
+def batch(
+    source: str,
+    to: str = "",
+    repo_type: str = "model",
+):
+    """Migrate multiple repos in parallel using multiple Modal containers.
+
+    Args:
+        source: Comma-separated repo IDs (e.g., "user/repo1,user/repo2,user/repo3")
+        to: Destination platform — "hf" or "ms".
+        repo_type: "model", "dataset", or "space". Applied to all repos.
+    """
+    from utils import get_env_token, get_ms_domain, parse_repo_id, detect_direction
+
+    repo_list = [r.strip() for r in source.split(",") if r.strip()]
+    if not repo_list:
+        print("ERROR: No repos provided. Use comma-separated list.")
+        return
+
+    print()
+    print("=" * 60)
+    print(f"  HF2MS Batch Migration — {len(repo_list)} repos")
+    print("=" * 60)
+
+    # Credentials
+    print()
+    print("Checking credentials...")
+    hf_token = get_env_token("HF_TOKEN")
+    ms_token = get_env_token("MODELSCOPE_TOKEN")
+    ms_domain = get_ms_domain()
+    print("  HF_TOKEN: OK")
+    print("  MODELSCOPE_TOKEN: OK")
+    print(f"  MODELSCOPE_DOMAIN: {ms_domain}")
+
+    # Parse all repos and determine direction
+    jobs = []
+    for raw in repo_list:
+        repo_id, source_platform = parse_repo_id(raw)
+        to_flag = to if to else None
+        src_plat, dst_plat = detect_direction(source_platform, to_flag)
+        jobs.append((repo_id, src_plat, dst_plat))
+
+    # Print plan
+    print()
+    print(f"  Repos ({repo_type}):")
+    for repo_id, src_plat, dst_plat in jobs:
+        src_name = "HF" if src_plat == "hf" else "MS"
+        dst_name = "HF" if dst_plat == "hf" else "MS"
+        print(f"    {src_name} -> {dst_name}  {repo_id}")
+    print()
+
+    # Build starmap args based on direction
+    start = time.time()
+    hf_to_ms_args = []
+    ms_to_hf_args = []
+    for repo_id, src_plat, dst_plat in jobs:
+        if src_plat == "hf" and dst_plat == "ms":
+            hf_to_ms_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
+        elif src_plat == "ms" and dst_plat == "hf":
+            ms_to_hf_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
+
+    print(f"Launching {len(hf_to_ms_args) + len(ms_to_hf_args)} parallel containers...")
+    print()
+
+    results = []
+
+    # Fan out HF->MS jobs
+    if hf_to_ms_args:
+        for result in migrate_hf_to_ms.starmap(hf_to_ms_args):
+            repo_id = hf_to_ms_args[len(results)][0]
+            status = result.get("status", "error")
+            if status == "success":
+                print(f"  OK  {repo_id} — {result['file_count']} files, {result['total_size']}, {result['duration']}")
+            else:
+                print(f"  FAIL {repo_id} — {result.get('error', 'Unknown')}")
+            results.append((repo_id, result))
+
+    # Fan out MS->HF jobs
+    if ms_to_hf_args:
+        offset = len(results)
+        for result in migrate_ms_to_hf.starmap(ms_to_hf_args):
+            repo_id = ms_to_hf_args[len(results) - offset][0]
+            status = result.get("status", "error")
+            if status == "success":
+                print(f"  OK  {repo_id} — {result['file_count']} files, {result['total_size']}, {result['duration']}")
+            else:
+                print(f"  FAIL {repo_id} — {result.get('error', 'Unknown')}")
+            results.append((repo_id, result))
+
+    # Summary
+    total_time = time.time() - start
+    succeeded = sum(1 for _, r in results if r.get("status") == "success")
+    failed = len(results) - succeeded
+
+    print()
+    print("=" * 60)
+    print(f"  Batch complete in {_format_duration(total_time)}")
+    print(f"  Succeeded: {succeeded}/{len(results)}")
+    if failed:
+        print(f"  Failed:    {failed}")
+        for repo_id, r in results:
+            if r.get("status") != "success":
+                print(f"    - {repo_id}: {r.get('error', 'Unknown')}")
+    print("=" * 60)

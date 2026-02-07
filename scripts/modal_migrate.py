@@ -240,7 +240,8 @@ def migrate_hf_to_ms(
         for _p in ("https://", "http://"):
             if domain.startswith(_p):
                 domain = domain[len(_p):]
-        url = f"https://{domain.rstrip('/')}/models/{ms_repo_id}"
+        type_path = "datasets" if repo_type == "dataset" else "models"
+        url = f"https://{domain.rstrip('/')}/{type_path}/{ms_repo_id}"
         print(f"       Uploaded in {_format_duration(ul_time)}")
         print(f"       Total: {_format_duration(total_time)}")
         print(f"       URL: {url}")

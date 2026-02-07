@@ -23,7 +23,11 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Support all three HF repo types: models, datasets, spaces
 - [x] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
 
-> **Test result**: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s total (1m20s download, 6m10s upload)
+> **Test results**:
+> - Single model: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s
+> - Single dataset: proseka-card-list — 7 files, 2.2 GB, 14m11s
+> - Batch models: 17 models, ~189 GB, 43m44s (parallel containers)
+> - Batch datasets: pixiv-niji-journey — 16 files, 58.5 GB, 19m48s; bandori-card-dataset — 3 files, 2.3 GB (migrated separately)
 
 ---
 
@@ -209,7 +213,7 @@ Same flow, reversed source/destination SDKs
 
 **Edge cases**:
 - Source repo doesn't exist → fail with "Repo not found" before invoking Modal
-- Destination repo already exists → proceed (upload will update files), warn user
+- Destination repo already exists → single mode warns and proceeds (updates files); batch mode skips existing repos
 - Large repo (>50GB) → warn user about potential timeout, suggest `allow_patterns` filter in future
 - Private source repo → works if token has read access
 - Rate limit hit → Modal function retries with backoff (3 attempts max)
@@ -295,6 +299,7 @@ modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
 
 Four Modal functions run in the cloud container:
 - `hello_world` — smoke test (60s timeout)
+- `check_repo_exists` — check if a repo exists on HF or MS (120s timeout, used for skip/warn logic)
 - `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout)
 - `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`)
 - `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`)
@@ -312,9 +317,10 @@ modal run scripts/modal_migrate.py::batch \
 ```
 
 - Each repo gets its own container (download + upload happen independently)
+- Pre-checks destination repos in parallel; skips any that already exist
 - Results stream back as each container completes
-- Summary printed at the end with success/fail counts
-- Tested: 17 models (~189 GB) migrated in 43m44s
+- Summary printed at the end with success/fail/skipped counts
+- Tested: 17 models (~189 GB) in 43m44s; 3 datasets (~63 GB) including 58.5 GB pixiv-niji-journey in 19m48s
 
 ### Plugin Manifest (.claude-plugin/plugin.json)
 
@@ -385,7 +391,8 @@ Examples:
 - [x] Add `@app.local_entrypoint()` for CLI orchestration (reads env tokens, parses args, calls remote)
 - [x] Test with a model repo (hitokomoru-diffusion-v2: 67 files, 15.6 GB, 7m30s)
 - [x] Test with a dataset repo (proseka-card-list: 7 files, 2.2 GB, 14m11s)
-- [x] Batch migration (17 models, ~189 GB, 43m44s with parallel containers)
+- [x] Batch migration — models (17 repos, ~189 GB, 43m44s with parallel containers)
+- [x] Batch migration — datasets (pixiv-niji-journey: 16 files, 58.5 GB, 19m48s; bandori-card-dataset: migrated separately)
 
 ### Phase 3: Plugin Integration
 **Depends on**: Phase 2 (migration functions must work)
@@ -400,7 +407,8 @@ Examples:
 - [x] Add progress reporting (file count, size, download/upload timing, total duration)
 - [x] Add error handling (try/except with contextual troubleshooting suggestions)
 - [x] Test with larger repos (15.6 GB model — hitokomoru-diffusion-v2)
-- [x] Test batch migration (17 models, ~189 GB, 43m44s)
+- [x] Test batch migration — models (17 repos, ~189 GB, 43m44s)
+- [x] Test batch migration — datasets (3 repos, ~63 GB)
 - [ ] Test all repo types (model done, dataset done, space pending)
 - [ ] Test both directions (HF→MS done, MS→HF pending)
 - [ ] Test error cases (bad token, missing repo, network failure)

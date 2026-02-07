@@ -2,7 +2,7 @@
 
 Claude Code plugin that migrates repos between HuggingFace and ModelScope using [Modal](https://modal.com) as cloud compute. No files touch your local machine.
 
-> Tested: 17 models (~189 GB) batch-migrated in 43m44s using parallel containers
+> Tested: 17 models (~189 GB) in 43m44s, 3 datasets (~63 GB) — all batch-migrated with parallel containers
 
 ## How It Works
 
@@ -119,7 +119,7 @@ modal run scripts/modal_migrate.py::batch \
   --to ms --repo-type dataset
 ```
 
-Each repo gets its own container and runs in parallel via Modal's `starmap()`.
+Each repo gets its own container and runs in parallel via Modal's `starmap()`. Repos that already exist on the destination are automatically skipped.
 
 ### Options (Single)
 

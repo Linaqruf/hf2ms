@@ -1,13 +1,14 @@
 ---
 name: migrate
-version: 1.0.0
+version: 1.1.0
 description: >-
   This skill should be used when the user wants to migrate, transfer, push, copy,
   or mirror repos between HuggingFace and ModelScope. Triggers on "migrate model",
   "transfer to ModelScope", "push to HuggingFace", "copy from HF to MS",
   "mirror model", "move dataset to ModelScope", "upload to ModelScope",
   "sync repo between HuggingFace and ModelScope", "move this to modelscope",
-  or "put this on huggingface".
+  "put this on huggingface", "batch migrate", "migrate multiple repos",
+  "migrate all my models", "bulk transfer", or "parallel migration".
 ---
 
 # HF-Modal-ModelScope Migration
@@ -164,6 +165,61 @@ modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "damo/text-t
 | "timeout" | Repo may be very large; try again or specify `--repo-type` to skip auto-detect |
 | "Modal" or "container" | Check Modal account: `modal token verify` |
 | "push_model" or "upload" | ModelScope upload issue; check MODELSCOPE_TOKEN permissions |
+
+## Batch Migration (Multiple Repos)
+
+When the user wants to migrate multiple repos at once, use the batch entrypoint which runs each repo in its own parallel Modal container.
+
+### When to Use Batch
+
+- User says "migrate all my models/datasets", "batch migrate", "migrate multiple repos"
+- User provides a list of repos (comma-separated or as a list)
+- User wants to migrate an entire account's repos of a given type
+
+### Batch Workflow
+
+Follow the same Step 1 (Validate Tokens) as single migration, then:
+
+#### Step 2b: Build Repo List
+
+Gather the comma-separated list of repo IDs. If the user says "all my models", help them list their repos first (e.g., using HuggingFace API search), then confirm the list.
+
+#### Step 3b: Confirm with User
+
+Present the batch summary:
+
+```
+Batch Migration Summary:
+  Direction:  [HuggingFace -> ModelScope | ModelScope -> HuggingFace]
+  Repo Type:  [model|dataset|space]
+  Repos (N):
+    - repo-1
+    - repo-2
+    ...
+```
+
+Then ask for confirmation using the same pattern as single migration.
+
+#### Step 4b: Execute Batch Migration
+
+```bash
+modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::batch" \
+  --source "<repo1>,<repo2>,<repo3>" \
+  --to <hf|ms> \
+  --repo-type <model|dataset|space>
+```
+
+**Important:**
+- The `--source` flag takes a comma-separated list (no spaces after commas)
+- `--repo-type` is required for batch (no auto-detect)
+- Each repo runs in its own Modal container in parallel via `starmap()`
+
+#### Step 5b: Report Batch Result
+
+The batch entrypoint prints a summary with success/fail counts. Report:
+- Total repos, successes, failures
+- Per-repo status (file count, size, time for successes; error for failures)
+- Destination URLs for successful migrations
 
 ## Edge Cases
 

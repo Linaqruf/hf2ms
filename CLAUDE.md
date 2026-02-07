@@ -18,6 +18,7 @@ Primary spec: `SPEC.md`
 - ModelScope upload uses `HubApi.upload_folder()` (HTTP-based, no git required)
 - Modal only auto-mounts the entrypoint file — `utils.py` imports must be lazy (inside `main()`)
 - Batch migration uses `starmap()` for parallel containers — each repo gets its own container
+- Destination existence check: single mode warns, batch mode auto-skips existing repos
 - Out of scope: format conversion, quantization, scheduling
 
 ## Commands
@@ -30,4 +31,4 @@ Primary spec: `SPEC.md`
 
 ## Current Status
 
-All phases complete. Tested: single migration (15.6 GB, 7m30s) and batch migration (17 models, ~189 GB, 43m44s parallel).
+All phases complete. Tested: single migration (15.6 GB, 7m30s), batch models (17 repos, ~189 GB, 43m44s), batch datasets (3 repos, ~63 GB).

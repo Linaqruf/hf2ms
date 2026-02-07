@@ -100,6 +100,48 @@ def hello_world() -> str:
 
 
 @app.function(image=migrate_image, timeout=120)
+def check_repo_exists(
+    repo_id: str,
+    platform: str,
+    repo_type: str,
+    token: str,
+    ms_domain: str = "",
+) -> bool:
+    """Check if a repo already exists on the given platform.
+
+    Returns:
+        True if the repo exists, False otherwise.
+    """
+    if platform == "hf":
+        from huggingface_hub import HfApi
+
+        api = HfApi(token=token)
+        try:
+            if repo_type == "dataset":
+                api.dataset_info(repo_id)
+            elif repo_type == "space":
+                api.space_info(repo_id)
+            else:
+                api.model_info(repo_id)
+            return True
+        except Exception:
+            return False
+
+    elif platform == "ms":
+        import os
+        if ms_domain:
+            os.environ["MODELSCOPE_DOMAIN"] = ms_domain
+
+        from modelscope.hub.api import HubApi
+
+        api = HubApi()
+        api.login(token)
+        return api.repo_exists(repo_id=repo_id, repo_type=repo_type, token=token)
+
+    return False
+
+
+@app.function(image=migrate_image, timeout=120)
 def detect_repo_type(repo_id: str, platform: str, token: str, ms_domain: str = "") -> str:
     """Auto-detect whether a repo is a model, dataset, or space.
 
@@ -422,7 +464,14 @@ def main(
         print("-" * 50)
         print()
 
-        # 7. Run migration
+        # 7. Check if destination repo already exists
+        dest_token = ms_token if dst_plat == "ms" else hf_token
+        dest_exists = check_repo_exists.remote(dest_repo_id, dst_plat, repo_type, dest_token, ms_domain)
+        if dest_exists:
+            print(f"  NOTE: {dest_repo_id} already exists on {dst_name}. Files will be updated/overwritten.")
+            print()
+
+        # 8. Run migration
         start = time.time()
         print("Starting migration...")
         print()
@@ -449,7 +498,7 @@ def main(
             print(f"ERROR: Unsupported direction {src_plat} -> {dst_plat}")
             return
 
-        # 8. Report
+        # 9. Report
         print()
         print("=" * 50)
         if result["status"] == "success":
@@ -544,17 +593,44 @@ def batch(
         print(f"    {src_name} -> {dst_name}  {repo_id}")
     print()
 
-    # Build starmap args based on direction
+    # Pre-check: which repos already exist on destination?
+    print("Checking destination repos for existing copies...")
+    check_args = []
+    for repo_id, src_plat, dst_plat in jobs:
+        dest_token = ms_token if dst_plat == "ms" else hf_token
+        check_args.append((repo_id, dst_plat, repo_type, dest_token, ms_domain))
+
+    existing = set()
+    for i, exists in enumerate(check_repo_exists.starmap(check_args)):
+        repo_id = jobs[i][0]
+        if exists:
+            existing.add(repo_id)
+            print(f"  SKIP {repo_id} — already exists on destination")
+
+    if existing:
+        print(f"  Skipping {len(existing)} existing repo(s)")
+    else:
+        print("  No existing repos found, migrating all")
+    print()
+
+    # Build starmap args based on direction (excluding existing)
     start = time.time()
     hf_to_ms_args = []
     ms_to_hf_args = []
     for repo_id, src_plat, dst_plat in jobs:
+        if repo_id in existing:
+            continue
         if src_plat == "hf" and dst_plat == "ms":
             hf_to_ms_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
         elif src_plat == "ms" and dst_plat == "hf":
             ms_to_hf_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
 
-    print(f"Launching {len(hf_to_ms_args) + len(ms_to_hf_args)} parallel containers...")
+    total_to_migrate = len(hf_to_ms_args) + len(ms_to_hf_args)
+    if total_to_migrate == 0:
+        print("All repos already exist on destination. Nothing to migrate.")
+        return
+
+    print(f"Launching {total_to_migrate} parallel containers...")
     print()
 
     results = []
@@ -586,11 +662,14 @@ def batch(
     total_time = time.time() - start
     succeeded = sum(1 for _, r in results if r.get("status") == "success")
     failed = len(results) - succeeded
+    skipped = len(existing)
 
     print()
     print("=" * 60)
     print(f"  Batch complete in {_format_duration(total_time)}")
     print(f"  Succeeded: {succeeded}/{len(results)}")
+    if skipped:
+        print(f"  Skipped:   {skipped} (already exist)")
     if failed:
         print(f"  Failed:    {failed}")
         for repo_id, r in results:

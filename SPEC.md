@@ -70,7 +70,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [ ] Skill runs the Modal script and reports results
 
 ### Future Scope (Post-MVP)
-1. Batch migration (migrate all repos from an org/user)
+1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 17 models, ~189 GB in 43m44s.
 2. Model format conversion during migration (e.g., safetensors to GGUF)
 3. Selective file migration (filter by pattern, e.g., only `.safetensors`)
 4. Persistent Modal Volume for caching frequently transferred repos
@@ -79,7 +79,6 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 
 ### Out of Scope
 - Model format conversion or quantization
-- Batch/bulk migration of entire organizations
 - Automated scheduling or cron-based sync
 - Web UI or dashboard
 - HuggingFace Spaces deployment (only file transfer)
@@ -302,6 +301,21 @@ Four Modal functions run in the cloud container:
 
 **Important**: Utils imports (`from utils import ...`) must be lazy (inside `main()`) because Modal only auto-mounts the entrypoint file. The remote functions don't use utils.
 
+### Batch Entrypoint
+
+The `batch` local entrypoint accepts comma-separated repo IDs and fans them out to parallel containers using Modal's `starmap()`:
+
+```bash
+modal run scripts/modal_migrate.py::batch \
+  --source "user/repo1,user/repo2,user/repo3" \
+  --to ms --repo-type model
+```
+
+- Each repo gets its own container (download + upload happen independently)
+- Results stream back as each container completes
+- Summary printed at the end with success/fail counts
+- Tested: 17 models (~189 GB) migrated in 43m44s
+
 ### Plugin Manifest (.claude-plugin/plugin.json)
 
 ```json
@@ -370,7 +384,8 @@ Examples:
 - [x] Add destination repo auto-creation (create_model/create_dataset on MS, create_repo exist_ok on HF)
 - [x] Add `@app.local_entrypoint()` for CLI orchestration (reads env tokens, parses args, calls remote)
 - [x] Test with a model repo (hitokomoru-diffusion-v2: 67 files, 15.6 GB, 7m30s)
-- [ ] Test with a dataset repo
+- [x] Test with a dataset repo (proseka-card-list: 7 files, 2.2 GB, 14m11s)
+- [x] Batch migration (17 models, ~189 GB, 43m44s with parallel containers)
 
 ### Phase 3: Plugin Integration
 **Depends on**: Phase 2 (migration functions must work)
@@ -385,7 +400,8 @@ Examples:
 - [x] Add progress reporting (file count, size, download/upload timing, total duration)
 - [x] Add error handling (try/except with contextual troubleshooting suggestions)
 - [x] Test with larger repos (15.6 GB model — hitokomoru-diffusion-v2)
-- [ ] Test all repo types (model done, dataset and space pending)
+- [x] Test batch migration (17 models, ~189 GB, 43m44s)
+- [ ] Test all repo types (model done, dataset done, space pending)
 - [ ] Test both directions (HF→MS done, MS→HF pending)
 - [ ] Test error cases (bad token, missing repo, network failure)
 - [x] Write README with setup instructions

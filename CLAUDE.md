@@ -17,15 +17,17 @@ Primary spec: `SPEC.md`
 - Optional: `MODELSCOPE_DOMAIN` — set to `modelscope.ai` for international site (default: `modelscope.cn`)
 - ModelScope upload uses `HubApi.upload_folder()` (HTTP-based, no git required)
 - Modal only auto-mounts the entrypoint file — `utils.py` imports must be lazy (inside `main()`)
-- Out of scope: batch migration, format conversion, quantization, scheduling
+- Batch migration uses `starmap()` for parallel containers — each repo gets its own container
+- Out of scope: format conversion, quantization, scheduling
 
 ## Commands
 
-- `modal run scripts/modal_migrate.py --source <repo> --to <hf|ms>` — Run migration
+- `modal run scripts/modal_migrate.py --source <repo> --to <hf|ms>` — Single migration
+- `modal run scripts/modal_migrate.py::batch --source <csv> --to <hf|ms> --repo-type <type>` — Batch (parallel)
 - `modal run scripts/modal_migrate.py::hello_world` — Smoke test Modal setup
 - `python scripts/validate_tokens.py` — Validate all platform tokens
 - `/migrate` — Claude Code slash command for guided migration
 
 ## Current Status
 
-All phases complete. Tested end-to-end: hitokomoru-diffusion-v2 (67 files, 15.6 GB) migrated in 7m30s.
+All phases complete. Tested: single migration (15.6 GB, 7m30s) and batch migration (17 models, ~189 GB, 43m44s parallel).

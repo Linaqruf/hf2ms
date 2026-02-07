@@ -2,7 +2,7 @@
 
 Claude Code plugin that migrates repos between HuggingFace and ModelScope using [Modal](https://modal.com) as cloud compute. No files touch your local machine.
 
-> Tested: 67 files, 15.6 GB migrated in 7m30s (hitokomoru-diffusion-v2)
+> Tested: 17 models (~189 GB) batch-migrated in 43m44s using parallel containers
 
 ## How It Works
 
@@ -87,7 +87,7 @@ Install this plugin in Claude Code, then:
 
 The plugin will validate tokens, confirm the migration, and run it.
 
-### Via Modal CLI (Direct)
+### Via Modal CLI (Single Repo)
 
 ```bash
 # HuggingFace → ModelScope (auto-detect type)
@@ -103,7 +103,25 @@ modal run scripts/modal_migrate.py --source "Linaqruf/model" --to ms --dest "MyO
 modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
 ```
 
-### Options
+### Via Modal CLI (Batch — Parallel Containers)
+
+Migrate multiple repos simultaneously, each in its own Modal container:
+
+```bash
+# Batch migrate models
+modal run scripts/modal_migrate.py::batch \
+  --source "user/model1,user/model2,user/model3" \
+  --to ms --repo-type model
+
+# Batch migrate datasets
+modal run scripts/modal_migrate.py::batch \
+  --source "user/dataset1,user/dataset2" \
+  --to ms --repo-type dataset
+```
+
+Each repo gets its own container and runs in parallel via Modal's `starmap()`.
+
+### Options (Single)
 
 | Flag | Description | Required |
 |------|-------------|----------|
@@ -113,6 +131,14 @@ modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
 | `--dest` | Custom destination repo ID (defaults to same as source) | No |
 
 *Not required if source has a platform prefix (`hf:` or `ms:`).
+
+### Options (Batch)
+
+| Flag | Description | Required |
+|------|-------------|----------|
+| `--source` | Comma-separated repo IDs | Yes |
+| `--to` | Destination platform: `hf` or `ms` | Yes |
+| `--repo-type` | `model`, `dataset`, or `space` (applied to all repos) | Yes |
 
 ## Supported Repo Types
 

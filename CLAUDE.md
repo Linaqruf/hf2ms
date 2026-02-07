@@ -1,6 +1,8 @@
-# HF-Modal-ModelScope Migration Plugin
+# HF2MS — HuggingFace to ModelScope Migration Plugin
 
 Migrate HuggingFace repos (models, datasets, spaces) to/from ModelScope using Modal as cloud compute. No local downloads.
+
+GitHub: https://github.com/Linaqruf/hf2ms
 
 ## Spec Reference
 
@@ -11,8 +13,10 @@ Primary spec: `SPEC.md`
 - All file transfers happen on Modal containers — never download to local machine
 - Minimal container image: only `huggingface_hub` + `modelscope` SDKs, no torch/transformers
 - Ephemeral containers only (no persistent Modal Volumes for v1)
-- Three tokens required: `HF_TOKEN`, `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `MODELSCOPE_TOKEN`
-- ModelScope `push_model()` requires `configuration.json` in model dir (auto-generated if missing)
+- Tokens required: `HF_TOKEN`, `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `MODELSCOPE_TOKEN`
+- Optional: `MODELSCOPE_DOMAIN` — set to `modelscope.ai` for international site (default: `modelscope.cn`)
+- ModelScope upload uses `HubApi.upload_folder()` (HTTP-based, no git required)
+- Modal only auto-mounts the entrypoint file — `utils.py` imports must be lazy (inside `main()`)
 - Out of scope: batch migration, format conversion, quantization, scheduling
 
 ## Commands
@@ -24,6 +28,4 @@ Primary spec: `SPEC.md`
 
 ## Current Status
 
-Phases 1-4 complete (code-complete). Manual testing with live credentials pending.
-→ Check `SPEC.md` → Development Phases for test checklist
-→ Start new dev sessions with `prompt.md`
+All phases complete. Tested end-to-end: hitokomoru-diffusion-v2 (67 files, 15.6 GB) migrated in 7m30s.

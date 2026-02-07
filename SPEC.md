@@ -1,6 +1,8 @@
-# HF-Modal-ModelScope Migration Plugin
+# HF2MS — HuggingFace to ModelScope Migration Plugin
 
 > Claude Code plugin that migrates HuggingFace repos to ModelScope (and vice versa) using Modal as cloud compute — no local downloads required.
+>
+> GitHub: https://github.com/Linaqruf/hf2ms
 
 ## Overview
 
@@ -16,10 +18,12 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - **Technical Level**: Developer
 
 ### Success Criteria
-- [ ] Migrate a model repo from HF to ModelScope without any files touching the local machine
+- [x] Migrate a model repo from HF to ModelScope without any files touching the local machine
 - [ ] Migrate in reverse (ModelScope to HF) with the same command
-- [ ] Support all three HF repo types: models, datasets, spaces
-- [ ] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
+- [x] Support all three HF repo types: models, datasets, spaces
+- [x] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
+
+> **Test result**: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s total (1m20s download, 6m10s upload)
 
 ---
 
@@ -107,7 +111,7 @@ Run Modal function:
   └── Return result
   │
   ▼
-Report: "Done! https://modelscope.cn/models/Linaqruf/animagine-xl-3.1"
+Report: "Done! https://modelscope.ai/models/Linaqruf/animagine-xl-3.1"
 ```
 
 #### Reverse Flow: ModelScope → HuggingFace
@@ -142,7 +146,7 @@ Same flow, reversed source/destination SDKs
 │              │        │  huggingface_hub.snapshot_   │        │              │
 │  - Models    │        │    download()                │        │  - Models    │
 │  - Datasets  │        │  modelscope.hub.HubApi.     │        │  - Datasets  │
-│  - Spaces    │        │    push_model()              │        │              │
+│  - Spaces    │        │    upload_folder()            │        │              │
 └──────────────┘        └─────────────────────────────┘        └──────────────┘
                                      ▲
                                      │ `modal run`
@@ -220,14 +224,15 @@ Same flow, reversed source/destination SDKs
 | `HF_TOKEN` | HuggingFace access token (read + write) | Yes | https://huggingface.co/settings/tokens |
 | `MODAL_TOKEN_ID` | Modal token ID | Yes | `modal token new` or https://modal.com/settings |
 | `MODAL_TOKEN_SECRET` | Modal token secret | Yes | Same as above |
-| `MODELSCOPE_TOKEN` | ModelScope API token | Yes | https://modelscope.cn/my/myaccesstoken |
+| `MODELSCOPE_TOKEN` | ModelScope API token | Yes | https://modelscope.ai/my/myaccesstoken |
+| `MODELSCOPE_DOMAIN` | ModelScope domain (bare, no protocol) | No | Default: `modelscope.cn`. Set to `modelscope.ai` for international site |
 
 ---
 
 ## File Structure
 
 ```
-huggingface-modal-modelscope/
+hf2ms/
 ├── .claude-plugin/
 │   └── plugin.json             # Claude Code plugin manifest
 ├── SPEC.md                     # This specification
@@ -292,8 +297,10 @@ modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
 Four Modal functions run in the cloud container:
 - `hello_world` — smoke test (60s timeout)
 - `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout)
-- `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, auto-generates `configuration.json`)
+- `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`)
 - `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`)
+
+**Important**: Utils imports (`from utils import ...`) must be lazy (inside `main()`) because Modal only auto-mounts the entrypoint file. The remote functions don't use utils.
 
 ### Plugin Manifest (.claude-plugin/plugin.json)
 
@@ -353,17 +360,17 @@ Examples:
 - [x] Create `.env.example` with all required tokens
 - [x] Write token validation script (`scripts/validate_tokens.py`)
 - [x] Write Modal app skeleton with container image definition (`scripts/modal_migrate.py`)
-- [ ] Test Modal function deploys and runs (hello world) *(requires Modal auth — test manually)*
+- [x] Test Modal function deploys and runs (hello world)
 
 ### Phase 2: Core Migration
 **Depends on**: Phase 1 (Modal app must deploy)
 - [x] Implement HF → ModelScope migration function on Modal
 - [x] Implement ModelScope → HF migration function on Modal
 - [x] Add repo type auto-detection (`detect_repo_type` remote function)
-- [x] Add destination repo auto-creation (push_model auto-creates on MS, create_repo exist_ok on HF)
+- [x] Add destination repo auto-creation (create_model/create_dataset on MS, create_repo exist_ok on HF)
 - [x] Add `@app.local_entrypoint()` for CLI orchestration (reads env tokens, parses args, calls remote)
-- [ ] Test with a small model repo (~100MB) *(requires credentials — test manually)*
-- [ ] Test with a dataset repo *(requires credentials — test manually)*
+- [x] Test with a model repo (hitokomoru-diffusion-v2: 67 files, 15.6 GB, 7m30s)
+- [ ] Test with a dataset repo
 
 ### Phase 3: Plugin Integration
 **Depends on**: Phase 2 (migration functions must work)
@@ -377,10 +384,10 @@ Examples:
 **Depends on**: Phase 3 (plugin must be functional end-to-end)
 - [x] Add progress reporting (file count, size, download/upload timing, total duration)
 - [x] Add error handling (try/except with contextual troubleshooting suggestions)
-- [ ] Test with larger repos (~5GB model) *(requires credentials — test manually)*
-- [ ] Test all repo types (model, dataset, space) *(requires credentials — test manually)*
-- [ ] Test both directions (HF→MS, MS→HF) *(requires credentials — test manually)*
-- [ ] Test error cases (bad token, missing repo, network failure) *(requires credentials — test manually)*
+- [x] Test with larger repos (15.6 GB model — hitokomoru-diffusion-v2)
+- [ ] Test all repo types (model done, dataset and space pending)
+- [ ] Test both directions (HF→MS done, MS→HF pending)
+- [ ] Test error cases (bad token, missing repo, network failure)
 - [x] Write README with setup instructions
 
 ---
@@ -389,11 +396,11 @@ Examples:
 
 | # | Question | Options | Impact | Status |
 |---|----------|---------|--------|--------|
-| 1 | ModelScope SDK version — older `modelscope` vs newer `modelhub` API? | B) Use `modelscope.hub.api.HubApi` Python API — `push_model()` auto-creates repos and uploads dirs. **Requires `configuration.json`** in model dir (auto-generated if missing). | Affects upload implementation in Modal function | Resolved |
+| 1 | ModelScope SDK version — older `modelscope` vs newer `modelhub` API? | Use `modelscope.hub.api.HubApi` — `create_model()` + `upload_folder()` (HTTP-based, no git). `push_model()` was deprecated and required git. | Affects upload implementation in Modal function | Resolved |
 | 2 | ModelScope repo naming — does namespace differ from HF? | A) Map HF username → MS username directly, B) Ask user for MS namespace | Affects auto-naming of destination repos | Open |
 | 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Open |
 | 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Open |
-| 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Open |
+| 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — 15.6 GB completed in 7m30s, well within 3600s |
 
 ---
 
@@ -402,7 +409,7 @@ Examples:
 ### External Documentation
 - [Modal Docs — Functions & Images](https://modal.com/docs/guide)
 - [huggingface_hub — Download & Upload](https://huggingface.co/docs/huggingface_hub/guides/download)
-- [ModelScope Hub API](https://modelscope.cn/docs)
+- [ModelScope Hub API](https://modelscope.ai/docs)
 - [Claude Code Plugin Structure](https://docs.anthropic.com/en/docs/claude-code/plugins)
 
 ---

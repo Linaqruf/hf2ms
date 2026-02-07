@@ -1,6 +1,8 @@
-# HF-Modal-ModelScope Migration Plugin
+# HF2MS
 
 Claude Code plugin that migrates repos between HuggingFace and ModelScope using [Modal](https://modal.com) as cloud compute. No files touch your local machine.
+
+> Tested: 67 files, 15.6 GB migrated in 7m30s (hitokomoru-diffusion-v2)
 
 ## How It Works
 

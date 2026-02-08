@@ -1,32 +1,24 @@
 # HF2MS
 
-Claude Code plugin that migrates repos between HuggingFace and ModelScope using [Modal](https://modal.com) as cloud compute. No files touch your local machine.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Modal](https://img.shields.io/badge/Modal-serverless-green.svg)](https://modal.com)
 
-> Tested: 17 models (~189 GB) in 43m44s, 3 datasets (~63 GB) — all batch-migrated with parallel containers
+Migrate repos between HuggingFace and ModelScope using [Modal](https://modal.com) as cloud compute. No files touch your local machine — everything transfers cloud-to-cloud.
 
 ## How It Works
 
 ```
 Your Machine                    Modal Container                    Platforms
 ┌──────────┐    modal run    ┌─────────────────┐    API calls    ┌──────────┐
-│ Claude   │ ──────────────> │ snapshot_download│ <────────────> │ HF Hub   │
-│ Code     │                 │ upload_folder    │ <────────────> │ MS Hub   │
+│ Terminal  │ ──────────────> │ snapshot_download│ <────────────> │ HF Hub   │
+│ or Claude │                │ upload_folder    │ <────────────> │ MS Hub   │
 └──────────┘                 └─────────────────┘                 └──────────┘
 ```
 
-1. You say "migrate this model to ModelScope"
-2. The plugin spins up a Modal container in the cloud
-3. The container downloads from the source platform
-4. The container uploads to the destination platform
-5. Done — no local disk space used
+Modal spins up an ephemeral container, downloads from the source platform, uploads to the destination, and shuts down. Your machine just sends the command.
 
-## Prerequisites
-
-- **Python 3.11+**
-- **Modal CLI** — `pip install modal` then `modal token new`
-- **Platform tokens** (see Setup below)
-
-## Setup
+## Quick Start
 
 ### 1. Install Modal
 
@@ -35,25 +27,12 @@ pip install modal
 modal token new
 ```
 
-### 2. Set Environment Variables
-
-Copy the template and fill in your tokens:
+### 2. Set Tokens
 
 ```bash
 cp .env.example .env
-```
+# Fill in your tokens, then load them:
 
-| Variable | Where to Get It |
-|----------|----------------|
-| `HF_TOKEN` | https://huggingface.co/settings/tokens (needs read + write) |
-| `MODAL_TOKEN_ID` | `modal token new` or https://modal.com/settings |
-| `MODAL_TOKEN_SECRET` | Same as above |
-| `MODELSCOPE_TOKEN` | https://modelscope.ai/my/myaccesstoken |
-| `MODELSCOPE_DOMAIN` | Optional. Set to `modelscope.ai` for international site (default: `modelscope.cn`) |
-
-Load them into your shell:
-
-```bash
 # bash/zsh
 export $(cat .env | xargs)
 
@@ -61,53 +40,54 @@ export $(cat .env | xargs)
 Get-Content .env | ForEach-Object { if ($_ -match '^([^#].+?)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2]) } }
 ```
 
-### 3. Validate Tokens
+| Variable | Where to Get It |
+|----------|----------------|
+| `HF_TOKEN` | https://huggingface.co/settings/tokens (read + write) |
+| `MODAL_TOKEN_ID` | `modal token new` or https://modal.com/settings |
+| `MODAL_TOKEN_SECRET` | Same as above |
+| `MODELSCOPE_TOKEN` | https://modelscope.ai/my/myaccesstoken |
+| `MODELSCOPE_DOMAIN` | Optional. `modelscope.ai` for international (default: `modelscope.cn`) |
+
+### 3. Validate
 
 ```bash
 python scripts/validate_tokens.py
 ```
 
-### 4. Test Modal Connection
+### 4. Smoke Test
 
 ```bash
 modal run scripts/modal_migrate.py::hello_world
 ```
 
+If this prints SDK versions, you're good to go.
+
 ## Usage
 
-### Via Claude Code (Plugin)
-
-Install this plugin in Claude Code, then:
-
-```
-> migrate username/my-model to ModelScope
-> transfer damo/text-to-video to HuggingFace
-> /migrate username/my-dataset --to ms --type dataset
-```
-
-The plugin will validate tokens, confirm the destination, and run the migration.
-
-### Via Modal CLI (Single Repo)
+### Single Repo
 
 ```bash
 # HuggingFace → ModelScope (auto-detect type)
 modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms
 
-# ModelScope → HuggingFace (explicit type)
+# ModelScope → HuggingFace
 modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf --repo-type model
 
 # Custom destination name
 modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --dest "OrgName/model-v2"
 
-# Using platform prefix
+# Platform prefix instead of --to flag
 modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
+
+# Dataset
+modal run scripts/modal_migrate.py::main --source "username/my-dataset" --to ms --repo-type dataset
 ```
 
-> **Windows note**: Prefix commands with `PYTHONIOENCODING=utf-8` to avoid Unicode errors from Modal CLI output.
+> **Windows**: Prefix commands with `PYTHONIOENCODING=utf-8` to avoid Unicode errors from Modal CLI.
 
-### Via Modal CLI (Batch — Parallel Containers)
+### Batch (Parallel Containers)
 
-Migrate multiple repos simultaneously, each in its own Modal container:
+Each repo gets its own Modal container and runs in parallel via `starmap()`. Repos that already exist on the destination are automatically skipped.
 
 ```bash
 # Batch migrate models
@@ -121,14 +101,12 @@ modal run scripts/modal_migrate.py::batch \
   --to ms --repo-type dataset
 ```
 
-Each repo gets its own container and runs in parallel via Modal's `starmap()`. Repos that already exist on the destination are automatically skipped.
-
 ### Detached Mode (Fire & Forget)
 
-Add `--detach` to run migrations in the background. The migration continues in Modal's cloud even if you close your terminal or end your Claude session:
+Add `--detach` before the script path. The migration continues in Modal's cloud even after you close your terminal:
 
 ```bash
-# Single repo — detached
+# Single — detached
 modal run --detach scripts/modal_migrate.py::main \
   --source "username/my-model" --to ms
 
@@ -138,36 +116,36 @@ modal run --detach scripts/modal_migrate.py::batch \
   --to ms --repo-type model
 ```
 
-Monitor your detached migration:
+Monitor detached runs:
 
 ```bash
-modal app logs hf-ms-migrate      # stream logs in real-time
+modal app logs hf-ms-migrate      # stream logs
 modal app list                    # see running/recent apps
 modal app stop hf-ms-migrate     # cancel a running migration
 ```
 
-Or visit the [Modal dashboard](https://modal.com/apps) in your browser.
+Or check the [Modal dashboard](https://modal.com/apps).
 
-> **Tip**: The `/migrate` command in Claude Code offers detached mode as a confirmation option — choose "Yes, detached" to fire & forget and free up your session.
+## Options
 
-### Options (Single)
+### Single (`::main`)
 
 | Flag | Description | Required |
 |------|-------------|----------|
-| `--source` | Source repo ID (e.g., `user/model` or `hf:user/model`) | Yes |
-| `--to` | Destination platform: `hf` or `ms` | Yes* |
+| `--source` | Source repo ID (`user/model` or `hf:user/model`) | Yes |
+| `--to` | Destination: `hf` or `ms` | Yes* |
 | `--repo-type` | `model`, `dataset`, or `space` (auto-detects if omitted) | No |
-| `--dest` | Custom destination repo ID (defaults to same as source) | No |
+| `--dest` | Custom destination repo ID | No |
 
-*Not required if source has a platform prefix (`hf:` or `ms:`).
+\*Not required if source has a platform prefix.
 
-### Options (Batch)
+### Batch (`::batch`)
 
 | Flag | Description | Required |
 |------|-------------|----------|
 | `--source` | Comma-separated repo IDs | Yes |
-| `--to` | Destination platform: `hf` or `ms` | Yes |
-| `--repo-type` | `model`, `dataset`, or `space` (applied to all repos) | No (default: model) |
+| `--to` | Destination: `hf` or `ms` | Yes |
+| `--repo-type` | `model`, `dataset`, or `space` (default: `model`) | No |
 
 ## Supported Repo Types
 
@@ -177,15 +155,24 @@ Or visit the [Modal dashboard](https://modal.com/apps) in your browser.
 | Datasets | Yes | Yes |
 | Spaces | Skipped (warning) | N/A |
 
-## Troubleshooting
+Spaces to ModelScope are skipped because ModelScope Studios (their Spaces equivalent) can only be created via the web UI — the SDK has no support. To force-migrate space files as a model repo, use `--repo-type model`.
 
-| Issue | Solution |
-|-------|----------|
-| Token errors | Run `python scripts/validate_tokens.py` |
-| Modal errors | Run `modal token verify` |
-| Repo not found | Check the repo ID on the source platform |
-| Timeout on large repos | Try with `--repo-type` to skip auto-detect |
-| ModelScope upload fails | Ensure `MODELSCOPE_TOKEN` has write permissions |
+## Claude Code Plugin
+
+This repo is also a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins). Install it and use natural language:
+
+```
+> migrate username/my-model to ModelScope
+> transfer damo/text-to-video to HuggingFace
+> batch migrate my models to ModelScope
+```
+
+Or use the `/migrate` slash command for a guided workflow with token validation, destination confirmation, and detached mode option:
+
+```
+> /migrate username/my-model --to ms
+> /migrate username/my-dataset --to ms --type dataset --detach
+```
 
 ## Project Structure
 
@@ -193,7 +180,34 @@ Or visit the [Modal dashboard](https://modal.com/apps) in your browser.
 .claude-plugin/plugin.json    Plugin manifest
 commands/migrate.md           /migrate slash command
 skills/migrate/SKILL.md       Natural language migration skill
-scripts/modal_migrate.py      Modal app (migration functions)
+scripts/modal_migrate.py      Modal app (5 remote functions + 2 entrypoints)
 scripts/validate_tokens.py    Token validation utility
-scripts/utils.py              Shared helpers
+scripts/utils.py              Shared helpers (repo parsing, direction detection)
 ```
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| Token errors | `python scripts/validate_tokens.py` |
+| Modal errors | `modal token verify` |
+| Repo not found | Check the repo ID on the source platform |
+| Timeout on large repos | Specify `--repo-type` to skip auto-detect |
+| ModelScope upload fails | Check `MODELSCOPE_TOKEN` write permissions |
+| Unicode errors (Windows) | Prefix with `PYTHONIOENCODING=utf-8` |
+
+## Benchmarks
+
+Tested migrations (all cloud-to-cloud, no local disk):
+
+| Scenario | Size | Duration |
+|----------|------|----------|
+| Single model HF→MS | 15.6 GB (67 files) | 7m 30s |
+| Single model MS→HF | 163 MB | 18.2s |
+| Single dataset HF→MS | 2.2 GB (7 files) | 14m 11s |
+| Batch models (17 repos) | ~189 GB | 43m 44s |
+| Batch datasets (largest) | 58.5 GB (16 files) | 19m 48s |
+
+## License
+
+[MIT](LICENSE)

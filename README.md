@@ -91,17 +91,19 @@ The plugin will validate tokens, confirm the migration, and run it.
 
 ```bash
 # HuggingFace → ModelScope (auto-detect type)
-modal run scripts/modal_migrate.py --source "Linaqruf/animagine-xl-3.1" --to ms
+modal run scripts/modal_migrate.py::main --source "Linaqruf/animagine-xl-3.1" --to ms
 
 # ModelScope → HuggingFace (explicit type)
-modal run scripts/modal_migrate.py --source "damo/text-to-video" --to hf --repo-type model
+modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf --repo-type model
 
 # Custom destination name
-modal run scripts/modal_migrate.py --source "Linaqruf/model" --to ms --dest "MyOrg/model-v2"
+modal run scripts/modal_migrate.py::main --source "Linaqruf/model" --to ms --dest "MyOrg/model-v2"
 
 # Using platform prefix
-modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
+modal run scripts/modal_migrate.py::main --source "hf:Linaqruf/model" --to ms
 ```
+
+> **Windows note**: Prefix commands with `PYTHONIOENCODING=utf-8` to avoid Unicode errors from Modal CLI output.
 
 ### Via Modal CLI (Batch — Parallel Containers)
 

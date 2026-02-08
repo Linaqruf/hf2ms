@@ -94,14 +94,15 @@ If the user chooses "Change settings", ask what to change and re-confirm.
 
 ### Step 4: Run Migration
 
-Execute the Modal migration command:
+Load `.env` and execute the Modal migration command. Always use `::main` entrypoint and set `PYTHONIOENCODING=utf-8` (prevents Unicode errors from Modal CLI on Windows):
 
 ```bash
-modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "<source-repo>" --to <hf|ms> --repo-type <type> --dest "<dest-repo>"
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "<source-repo>" --to <hf|ms> --repo-type <type> --dest "<dest-repo>"
 ```
 
 Build the command from the parsed arguments:
 - Always include `--source` and `--to`
+- Always use `::main` entrypoint (not bare `modal_migrate.py`)
 - Include `--repo-type` only if the user specified it (otherwise let it auto-detect)
 - Include `--dest` only if different from source
 

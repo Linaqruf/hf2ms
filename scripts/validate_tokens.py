@@ -21,15 +21,25 @@ def load_dotenv() -> None:
     ]
     for env_path in candidates:
         if env_path and env_path.is_file():
-            with open(env_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    key, _, value = line.partition("=")
-                    key, value = key.strip(), value.strip()
-                    if key and key not in os.environ:
-                        os.environ[key] = value
+            try:
+                with open(env_path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        key, _, value = line.partition("=")
+                        key = key.strip()
+                        # Handle 'export KEY=value' syntax
+                        if key.startswith("export "):
+                            key = key[7:].strip()
+                        value = value.strip()
+                        # Strip surrounding quotes
+                        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                            value = value[1:-1]
+                        if key and key not in os.environ:
+                            os.environ[key] = value
+            except (OSError, UnicodeDecodeError) as e:
+                print(f"  WARNING: Could not read {env_path}: {e}")
             break
 
 
@@ -51,7 +61,7 @@ def validate_hf_token(token: str) -> tuple[bool, str]:
     except (ConnectionError, TimeoutError, OSError) as e:
         return False, f"Could not reach HuggingFace API (network issue?): {e}"
     except Exception as e:
-        return False, f"Invalid token: {e}"
+        return False, f"Validation failed ({type(e).__name__}): {e}"
 
 
 def validate_modelscope_token(token: str) -> tuple[bool, str]:
@@ -68,7 +78,7 @@ def validate_modelscope_token(token: str) -> tuple[bool, str]:
     except (ConnectionError, TimeoutError, OSError) as e:
         return False, f"Could not reach ModelScope API (network issue?): {e}"
     except Exception as e:
-        return False, f"Invalid token: {e}"
+        return False, f"Validation failed ({type(e).__name__}): {e}"
 
 
 def validate_modal_tokens(token_id: str | None, token_secret: str | None) -> tuple[bool, str]:
@@ -91,6 +101,10 @@ def main() -> int:
     print("=" * 60)
 
     ms_domain = os.environ.get("MODELSCOPE_DOMAIN", "modelscope.cn").strip().rstrip("/")
+    # Strip protocol if user included it (SDK expects bare domain)
+    for prefix in ("https://", "http://"):
+        if ms_domain.startswith(prefix):
+            ms_domain = ms_domain[len(prefix):]
     token_urls = {
         "HF_TOKEN": "https://huggingface.co/settings/tokens",
         "MODAL_TOKEN_ID": "modal token new",

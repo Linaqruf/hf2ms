@@ -229,7 +229,7 @@ Same flow, reversed source/destination SDKs
 4. Determine destination repo ID (default: same name under user's namespace)
 5. Create destination repo if it doesn't exist (HF: `create_repo` with `exist_ok=True`; MS: `repo_exists()` then `create_model()`/`create_dataset()`)
 6. Invoke Modal function with: source_id, dest_id, direction, repo_type, tokens
-7. Modal function: `snapshot_download` from source → `/tmp/repo` → `upload_folder` to destination
+7. Modal function: `snapshot_download` from source → temp directory → `upload_folder` to destination
 8. Return destination URL
 
 **Edge cases**:
@@ -306,16 +306,16 @@ The `@app.local_entrypoint()` runs on your machine, reads env tokens, and calls 
 
 ```bash
 # Auto-detect repo type, migrate to ModelScope
-modal run scripts/modal_migrate.py --source "Linaqruf/animagine-xl-3.1" --to ms
+modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms
 
 # Explicit type, custom destination name
-modal run scripts/modal_migrate.py --source "Linaqruf/model" --to ms --repo-type model --dest "Linaqruf/model-v2"
+modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --repo-type model --dest "OrgName/model-v2"
 
 # ModelScope → HuggingFace
-modal run scripts/modal_migrate.py --source "damo/text-to-video" --to hf
+modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf
 
 # Platform prefix instead of --to flag
-modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
+modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
 ```
 
 ### Remote Functions
@@ -323,7 +323,7 @@ modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
 Five Modal functions run in the cloud container:
 - `hello_world` — smoke test (60s timeout)
 - `check_repo_exists` — check if a repo exists on HF or MS (120s timeout); catches only `RepositoryNotFoundError` for HF, lets other errors propagate
-- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout); catches only 404s, surfaces auth/network errors; MS now checks both model and dataset
+- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout); HF: catches only 404s, surfaces auth/network errors; MS: checks model then dataset, surfaces non-404 errors
 - `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`); includes full traceback on error
 - `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`); passes `repo_type` to MS download
 
@@ -351,10 +351,12 @@ modal run scripts/modal_migrate.py::batch \
 {
   "name": "hf-modal-modelscope",
   "version": "1.0.0",
-  "description": "Migrate repos between HuggingFace and ModelScope via Modal — no local downloads.",
+  "description": "Migrate repos between HuggingFace and ModelScope via Modal — no local downloads. Supports models, datasets, and spaces with cloud-to-cloud transfer.",
   "license": "MIT",
-  "author": { "name": "Linaqruf" },
-  "keywords": ["huggingface", "modelscope", "modal", "migration"]
+  "author": { "name": "Linaqruf", "url": "https://github.com/Linaqruf" },
+  "repository": "https://github.com/Linaqruf/hf2ms",
+  "homepage": "https://github.com/Linaqruf/hf2ms",
+  "keywords": ["huggingface", "modelscope", "modal", "migration", "model-transfer", "cloud-compute", "ml-ops"]
 }
 ```
 
@@ -374,9 +376,9 @@ The skill should trigger on:
 ```
 
 Examples:
-- `/migrate Linaqruf/animagine-xl-3.1 --to ms`
+- `/migrate username/my-model --to ms`
 - `/migrate damo/text-to-video --to hf --type model`
-- `/migrate Linaqruf/my-dataset --to ms --type dataset`
+- `/migrate username/my-dataset --to ms --type dataset`
 
 ---
 

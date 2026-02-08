@@ -21,17 +21,17 @@ Parse the user's argument string to extract:
 
 | Input | Source | Direction | Type |
 |-------|--------|-----------|------|
-| `Linaqruf/animagine-xl-3.1 --to ms` | `Linaqruf/animagine-xl-3.1` | HF→MS | auto-detect |
-| `hf:Linaqruf/model --to ms` | `Linaqruf/model` | HF→MS | auto-detect |
+| `alice/my-model --to ms` | `alice/my-model` | HF→MS | auto-detect |
+| `hf:alice/my-model --to ms` | `alice/my-model` | HF→MS | auto-detect |
 | `damo/text-to-video --to hf --type model` | `damo/text-to-video` | MS→HF | model |
-| `Linaqruf/dataset --to ms --type dataset` | `Linaqruf/dataset` | HF→MS | dataset |
-| `Linaqruf/model --to ms --dest MyOrg/model-v2` | `Linaqruf/model` | HF→MS (dest: `MyOrg/model-v2`) | auto-detect |
+| `alice/my-dataset --to ms --type dataset` | `alice/my-dataset` | HF→MS | dataset |
+| `alice/my-model --to ms --dest OrgName/model-v2` | `alice/my-model` | HF→MS (dest: `OrgName/model-v2`) | auto-detect |
 
 If the argument is empty or cannot be parsed, ask the user:
 
 ```
 What repo would you like to migrate? Please provide:
-- The repo ID (e.g., Linaqruf/animagine-xl-3.1)
+- The repo ID (e.g., username/model-name)
 - The direction (to HuggingFace or to ModelScope)
 ```
 
@@ -49,7 +49,7 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; python "${CLA
 
 If any tokens are missing or invalid, show the user the output and stop. Do NOT proceed without valid tokens.
 
-**Important:** Note the authenticated usernames from the output (e.g., "Authenticated as: Linaqruf"). These will be needed for the destination namespace step.
+**Important:** Note the authenticated usernames from the output (e.g., "Authenticated as: alice"). These will be needed for the destination namespace step.
 
 ### Step 2: Determine Direction
 
@@ -135,7 +135,7 @@ After the command completes:
 **On success**: Report the destination URL and file count. Example:
 ```
 Migration complete!
-  URL:   https://modelscope.cn/models/Linaqruf/animagine-xl-3.1
+  URL:   https://modelscope.cn/models/username/model-name
   Files: 42
 ```
 

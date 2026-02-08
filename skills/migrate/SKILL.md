@@ -64,10 +64,10 @@ For direct CLI usage without the interactive workflow. Always source `.env`, set
 
 ```bash
 # Single repo (auto-detect type)
-set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "Linaqruf/animagine-xl-3.1" --to ms
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms
 
 # Single repo (explicit type, custom destination)
-set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "Linaqruf/model" --to ms --repo-type model --dest "MyOrg/model-v2"
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms --repo-type model --dest "OrgName/model-v2"
 
 # Batch (parallel containers, one per repo)
 set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::batch" --source "user/model1,user/model2,user/model3" --to ms --repo-type model
@@ -77,7 +77,7 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCOD
 
 | Aspect | Single | Batch |
 |--------|--------|-------|
-| Entrypoint | `modal_migrate.py` | `modal_migrate.py::batch` |
+| Entrypoint | `modal_migrate.py::main` | `modal_migrate.py::batch` |
 | `--source` | One repo ID | Comma-separated list |
 | `--repo-type` | Optional (auto-detects) | Optional (default: `model`) |
 | Type detection | Per-repo auto-detect | Applied uniformly |

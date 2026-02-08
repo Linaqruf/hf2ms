@@ -35,4 +35,4 @@ Primary spec: `SPEC.md`
 
 ## Current Status
 
-All phases complete. Tested: single migration (15.6 GB, 7m30s), batch models (17 repos, ~189 GB, 43m44s), batch datasets (3 repos, ~63 GB).
+All phases complete (including detached mode). Tested: single HF→MS (15.6 GB, 7m30s), single MS→HF (163 MB, 18.2s), batch models (17 repos, ~189 GB, 43m44s), batch datasets (3 repos, ~63 GB), detached mode, space rejection.

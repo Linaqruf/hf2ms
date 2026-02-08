@@ -1,13 +1,15 @@
 ---
 name: migrate
-version: 1.1.0
+version: 1.2.0
 description: >-
   This skill should be used when the user wants to migrate, transfer, push, copy,
   or mirror repos between HuggingFace and ModelScope. Triggers on "migrate model",
   "transfer to ModelScope", "push to HuggingFace", "copy from HF to MS",
-  "mirror model", "move dataset to ModelScope", "upload to ModelScope",
+  "mirror model", "move dataset to ModelScope", "migrate space",
+  "upload to ModelScope", "download from ModelScope",
   "sync repo between HuggingFace and ModelScope", "move this to modelscope",
-  "put this on huggingface", "batch migrate", "migrate multiple repos",
+  "put this on huggingface", "copy from ModelScope to HuggingFace",
+  "batch migrate", "migrate multiple repos",
   "migrate all my models", "bulk transfer", or "parallel migration".
 ---
 
@@ -15,16 +17,30 @@ description: >-
 
 Migrate repos between HuggingFace and ModelScope using Modal as an ephemeral cloud compute bridge. No files touch the local machine — everything transfers cloud-to-cloud.
 
+## Architecture
+
+```
+Local Machine              Modal Container              Platforms
+┌──────────┐  modal run  ┌─────────────────┐  API     ┌──────────┐
+│ Claude   │ ──────────> │ snapshot_download│ <──────> │ HF Hub   │
+│ Code     │             │ upload_folder    │ <──────> │ MS Hub   │
+└──────────┘             └─────────────────┘          └──────────┘
+```
+
+Modal containers are ephemeral — each migration spins up a fresh container, transfers files via platform SDKs, then the container is destroyed. No persistent storage.
+
 ## Supported Directions
 
-- **HuggingFace -> ModelScope**: Download on Modal, upload to ModelScope
-- **ModelScope -> HuggingFace**: Download on Modal, upload to HuggingFace
+- **HuggingFace -> ModelScope**: Download via `huggingface_hub.snapshot_download`, upload via ModelScope `HubApi.upload_folder()`
+- **ModelScope -> HuggingFace**: Download via `modelscope.hub.snapshot_download`, upload via `HfApi.upload_folder()`
 
 ## Supported Repo Types
 
-- **Models** — weights, configs, tokenizers
-- **Datasets** — data files, metadata
-- **Spaces** — files only (no deployment on ModelScope)
+| Type | HF -> MS | MS -> HF | Notes |
+|------|----------|----------|-------|
+| Models | Yes | Yes | Weights, configs, tokenizers |
+| Datasets | Yes | Yes | Data files, metadata |
+| Spaces | Partial (as model repo) | N/A | ModelScope has no Spaces equivalent |
 
 ## Prerequisites
 
@@ -38,125 +54,47 @@ Three sets of credentials must be available as environment variables:
 | `MODELSCOPE_TOKEN` | ModelScope | https://modelscope.ai/my/myaccesstoken |
 | `MODELSCOPE_DOMAIN` | ModelScope (optional) | Defaults to `modelscope.cn`. Set to `modelscope.ai` for international site. |
 
-For token validation to work locally, `huggingface_hub` and `modelscope` must be pip-installed on the local machine. The migration itself runs entirely on Modal (no local installs needed for that).
+Tokens can be set in the shell or placed in `${CLAUDE_PLUGIN_ROOT}/.env` — the validation script and `/migrate` command auto-load this file. Ensure `huggingface_hub` and `modelscope` are pip-installed locally for token validation. The migration itself runs entirely on Modal (no local installs needed for that).
 
-## Workflow
+## Executing a Migration
 
-When the user requests a migration, follow these steps **in order**. Do not skip steps.
+Use the `/migrate` command for the guided interactive workflow. It handles token validation, parameter extraction, user confirmation, and execution.
 
-### Step 1: Validate Tokens
-
-Run the validation script:
+For direct CLI usage without the interactive workflow. Always source `.env`, set `PYTHONIOENCODING=utf-8` (prevents Modal CLI Unicode errors on Windows), and specify the `::main` or `::batch` entrypoint:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/validate_tokens.py"
+# Single repo (auto-detect type)
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms
+
+# Single repo (explicit type, custom destination)
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms --repo-type model --dest "OrgName/model-v2"
+
+# Batch (parallel containers, one per repo)
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::batch" --source "user/model1,user/model2,user/model3" --to ms --repo-type model
 ```
 
-**If tokens are missing or invalid:**
-- Show the user exactly which tokens failed
-- Provide the URLs to obtain them (from the table above)
-- STOP — do not proceed until tokens are fixed
+### Single vs Batch
 
-**If all tokens pass:**
-- Briefly confirm: "All tokens validated."
-- Continue to next step.
+| Aspect | Single | Batch |
+|--------|--------|-------|
+| Entrypoint | `modal_migrate.py::main` | `modal_migrate.py::batch` |
+| `--source` | One repo ID | Comma-separated list |
+| `--repo-type` | Optional (auto-detects) | Optional (default: `model`) |
+| Type detection | Per-repo auto-detect | Applied uniformly |
+| Parallelism | One container | One container per repo via `starmap()` |
+| Existing repos | Warns, proceeds | Auto-skips |
 
-### Step 2: Extract Migration Parameters
+The `/migrate` command handles direction inference from natural language (e.g., "to ModelScope" -> `--to ms`) and URL-to-repo-ID extraction automatically. The script expects bare `namespace/name` format, not full URLs.
 
-From the user's message, extract:
+## Edge Cases
 
-1. **Source repo ID** — e.g., `Linaqruf/animagine-xl-3.1`, `damo/text-to-video`
-2. **Direction** — which platform is the source, which is the destination
-3. **Repo type** — model, dataset, or space (optional, auto-detects if not stated)
-4. **Custom destination** — if user wants a different name on the destination (optional)
+- **Repo already exists on destination**: Single mode proceeds with a warning (files are updated/overwritten). Batch mode auto-skips existing repos.
+- **Private source repo**: Works if the source token has read access.
+- **Spaces to ModelScope**: Space files are uploaded as a model repo (ModelScope has no Spaces equivalent).
+- **Large repos (>10GB)**: The Modal function has a 3600s (1 hour) timeout. Tested up to 58.5 GB successfully.
+- **ModelScope namespace**: Defaults to same as source. Destination namespace must already exist on ModelScope or match the authenticated user.
 
-**Extraction rules:**
-- If the user says "migrate X to ModelScope" -> source is HF, dest is MS
-- If the user says "migrate X to HuggingFace" / "migrate X to HF" -> source is MS, dest is HF
-- If the user says "migrate X from ModelScope" -> source is MS, dest is HF
-- If the user prefixes with `hf:` or `ms:` -> platform is explicit
-- If direction is ambiguous, ask:
-
-```typescript
-{
-  question: "Which direction should the migration go?",
-  header: "Direction",
-  options: [
-    { label: "HuggingFace to ModelScope", description: "Download from HF, upload to ModelScope" },
-    { label: "ModelScope to HuggingFace", description: "Download from ModelScope, upload to HF" }
-  ]
-}
-```
-
-- If no repo ID is found in the message, ask:
-  "What's the repo ID you'd like to migrate? (e.g., `Linaqruf/animagine-xl-3.1`)"
-
-### Step 3: Confirm with User
-
-Always confirm before running. Present a summary:
-
-```
-Migration Summary:
-  Source:      [HuggingFace|ModelScope] / [repo-id]
-  Destination: [HuggingFace|ModelScope] / [dest-repo-id]
-  Type:        [model|dataset|space|auto-detect]
-```
-
-Then ask:
-
-```typescript
-{
-  question: "Ready to start this migration?",
-  header: "Confirm",
-  options: [
-    { label: "Yes, migrate", description: "Start the cloud-to-cloud migration via Modal" },
-    { label: "Change something", description: "Modify repo, direction, or destination name" },
-    { label: "Cancel", description: "Abort" }
-  ]
-}
-```
-
-- If "Change something" -> ask what to change, update parameters, re-confirm
-- If "Cancel" -> stop
-
-### Step 4: Execute Migration
-
-Build and run the Modal command:
-
-```bash
-modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "<repo-id>" --to <hf|ms>
-```
-
-**Optional flags** (add only if applicable):
-- `--repo-type <model|dataset|space>` — only if user specified type
-- `--dest "<namespace/name>"` — only if user wants a different destination name
-
-**Examples:**
-
-```bash
-# Basic: auto-detect type, same name on destination
-modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "Linaqruf/animagine-xl-3.1" --to ms
-
-# With explicit type
-modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "Linaqruf/animagine-xl-3.1" --to ms --repo-type model
-
-# With custom destination
-modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "Linaqruf/model" --to ms --dest "MyOrg/model-v2"
-
-# Reverse: ModelScope to HuggingFace
-modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "damo/text-to-video" --to hf
-```
-
-### Step 5: Report Result
-
-**On success** (exit code 0, output contains "Migration complete"):
-- Report the destination URL
-- Report the file count
-- Example: "Migration complete! 42 files transferred to https://modelscope.cn/models/Linaqruf/animagine-xl-3.1"
-
-**On failure** (non-zero exit code or error in output):
-- Show the error message from the output
-- Suggest troubleshooting based on the error:
+## Troubleshooting
 
 | Error Pattern | Suggestion |
 |---------------|------------|
@@ -164,72 +102,8 @@ modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py" --source "damo/text-t
 | "not found" or "404" | Verify the repo ID exists on the source platform |
 | "timeout" | Repo may be very large; try again or specify `--repo-type` to skip auto-detect |
 | "Modal" or "container" | Check Modal account: `modal token verify` |
-| "push_model" or "upload" | ModelScope upload issue; check MODELSCOPE_TOKEN permissions |
-
-## Batch Migration (Multiple Repos)
-
-When the user wants to migrate multiple repos at once, use the batch entrypoint which runs each repo in its own parallel Modal container.
-
-### When to Use Batch
-
-- User says "migrate all my models/datasets", "batch migrate", "migrate multiple repos"
-- User provides a list of repos (comma-separated or as a list)
-- User wants to migrate an entire account's repos of a given type
-
-### Batch Workflow
-
-Follow the same Step 1 (Validate Tokens) as single migration, then:
-
-#### Step 2b: Build Repo List
-
-Gather the comma-separated list of repo IDs. If the user says "all my models", help them list their repos first (e.g., using HuggingFace API search), then confirm the list.
-
-#### Step 3b: Confirm with User
-
-Present the batch summary:
-
-```
-Batch Migration Summary:
-  Direction:  [HuggingFace -> ModelScope | ModelScope -> HuggingFace]
-  Repo Type:  [model|dataset|space]
-  Repos (N):
-    - repo-1
-    - repo-2
-    ...
-```
-
-Then ask for confirmation using the same pattern as single migration.
-
-#### Step 4b: Execute Batch Migration
-
-```bash
-modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::batch" \
-  --source "<repo1>,<repo2>,<repo3>" \
-  --to <hf|ms> \
-  --repo-type <model|dataset|space>
-```
-
-**Important:**
-- The `--source` flag takes a comma-separated list (no spaces after commas)
-- `--repo-type` is required for batch (no auto-detect)
-- Each repo runs in its own Modal container in parallel via `starmap()`
-
-#### Step 5b: Report Batch Result
-
-The batch entrypoint prints a summary with success/fail counts. Report:
-- Total repos, successes, failures
-- Per-repo status (file count, size, time for successes; error for failures)
-- Destination URLs for successful migrations
-
-## Edge Cases
-
-- **Repo already exists on destination**: Migration proceeds — files are updated/overwritten.
-- **Private source repo**: Works if the source token has read access.
-- **Spaces to ModelScope**: Space files are uploaded as a model repo (ModelScope has no Spaces equivalent).
-- **Large repos (>10GB)**: May take a while. The Modal function has a 3600s (1 hour) timeout.
-- **User provides full URL instead of repo ID**: Extract the `namespace/name` part. Examples:
-  - `https://huggingface.co/Linaqruf/model` -> `Linaqruf/model` (platform: hf)
-  - `https://modelscope.cn/models/damo/model` -> `damo/model` (platform: ms)
+| "upload" errors | ModelScope upload issue; check MODELSCOPE_TOKEN permissions |
+| Network/connection errors | Transient; retry the migration |
 
 ## Scripts Reference
 
@@ -241,6 +115,6 @@ The batch entrypoint prints a summary with success/fail counts. Report:
 
 ## SDK Reference
 
-For HuggingFace and ModelScope Python SDK methods (list, info, create, download, upload, files, branches, and key differences between platforms), see:
+Before searching the web for HuggingFace or ModelScope SDK methods, read the bundled reference file. It contains complete Python SDK signatures for both platforms (list, info, create, download, upload, files, branches) and a key differences table.
 
-`${CLAUDE_PLUGIN_ROOT}/skills/migrate/references/hub-api-reference.md`
+**Read first**: `${CLAUDE_PLUGIN_ROOT}/skills/migrate/references/hub-api-reference.md`

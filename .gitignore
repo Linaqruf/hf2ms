@@ -1,6 +1,9 @@
 # Environment variables (contains secrets)
 .env
 
+# Plugin settings (user-specific)
+.claude/*.local.md
+
 # Python
 __pycache__/
 *.pyc

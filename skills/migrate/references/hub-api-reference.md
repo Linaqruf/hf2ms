@@ -1,6 +1,6 @@
 # Hub API Reference — HuggingFace & ModelScope
 
-Quick-reference for Python SDK methods. No need to fetch docs or use context7.
+Inline reference for Python SDK methods — no external documentation lookups needed.
 
 ---
 
@@ -22,17 +22,17 @@ api.whoami(token=None) -> dict
 
 ```python
 # Models — returns Iterable[ModelInfo]
-api.list_models(author="Linaqruf", search="xl", pipeline_tag="text-to-image",
+api.list_models(author="username", search="xl", pipeline_tag="text-to-image",
                 sort="last_modified", direction=-1, limit=50, full=True)
 # ModelInfo attrs: .id, .private, .downloads, .likes, .tags, .pipeline_tag, .last_modified
 
 # Datasets — returns Iterable[DatasetInfo]
-api.list_datasets(author="Linaqruf", search="pixiv", sort="last_modified",
+api.list_datasets(author="username", search="pixiv", sort="last_modified",
                   limit=50, tags=["language:en"])
 # DatasetInfo attrs: .id, .private, .downloads, .likes, .tags, .last_modified
 
 # Spaces — returns Iterable[SpaceInfo]
-api.list_spaces(author="Linaqruf", search="animagine", sort="last_modified", limit=50)
+api.list_spaces(author="username", search="animagine", sort="last_modified", limit=50)
 # SpaceInfo attrs: .id, .private, .likes, .sdk, .last_modified
 ```
 
@@ -72,7 +72,7 @@ api.move_repo(from_id="old/name", to_id="new/name", repo_type=None)
 ```python
 # Download entire repo → returns local dir path
 snapshot_download(
-    repo_id="Linaqruf/animagine-xl",
+    repo_id="username/my-model",
     repo_type="model",           # "model", "dataset", "space"
     revision=None,               # branch/tag/commit
     local_dir="/path/to/save",   # explicit output dir
@@ -85,7 +85,7 @@ snapshot_download(
 
 # Download single file → returns local file path
 hf_hub_download(
-    repo_id="Linaqruf/animagine-xl",
+    repo_id="username/my-model",
     filename="model.safetensors",
     subfolder=None,
     repo_type="model",
@@ -101,7 +101,7 @@ hf_hub_download(
 ```python
 # Upload entire folder
 api.upload_folder(
-    repo_id="Linaqruf/my-model",
+    repo_id="username/my-model",
     folder_path="/local/path",
     path_in_repo="",             # subfolder in repo (default: root)
     repo_type="model",
@@ -117,14 +117,14 @@ api.upload_folder(
 api.upload_file(
     path_or_fileobj="/local/file.bin",
     path_in_repo="file.bin",
-    repo_id="Linaqruf/my-model",
+    repo_id="username/my-model",
     repo_type="model",
     commit_message="Add file",
 )
 
 # Upload large folder (>100k files or >100GB, resumable)
 api.upload_large_folder(
-    repo_id="Linaqruf/huge-dataset",
+    repo_id="username/large-dataset",
     folder_path="/local/path",
     repo_type="dataset",
     allow_patterns=None,
@@ -190,15 +190,15 @@ api.change_discussion_status(repo_id, discussion_num=1, new_status="closed")
 ```python
 api.like(repo_id, repo_type=None)
 api.unlike(repo_id, repo_type=None)
-api.list_liked_repos(user="Linaqruf") -> UserLikes
+api.list_liked_repos(user="username") -> UserLikes
 ```
 
 ### Collections
 
 ```python
-api.list_collections(owner="Linaqruf", sort="trending", limit=10) -> Iterable[Collection]
-api.create_collection(title="My Models", namespace="Linaqruf", private=False)
-api.add_collection_item(collection_slug, item_id="Linaqruf/model", item_type="model")
+api.list_collections(owner="username", sort="trending", limit=10) -> Iterable[Collection]
+api.create_collection(title="My Models", namespace="username", private=False)
+api.add_collection_item(collection_slug, item_id="username/my-model", item_type="model")
 api.delete_collection(collection_slug)
 ```
 
@@ -225,26 +225,26 @@ api.login(access_token="ms-xxx")
 
 ```python
 # Models — returns dict with keys: Models (list), total_count, page_number, page_size
-result = api.list_models("Linaqruf", page_number=1, page_size=50)
+result = api.list_models("username", page_number=1, page_size=50)
 models = result.get("Models", [])
 # Each model dict has: Name, Path, Description, Downloads, Likes, ...
 
 # Datasets — returns dict with keys: datasets (list), total_count, page_number, page_size
-result = api.list_datasets("Linaqruf", page_number=1, page_size=50)
+result = api.list_datasets("username", page_number=1, page_size=50)
 datasets = result.get("datasets", [])
 # Each dataset dict has: id, display_name, description, downloads, likes, license, ...
 # NOTE: models key is "Models" (uppercase), datasets key is "datasets" (lowercase)
-# NOTE: model items use "Name", dataset items use "id" (e.g. "Linaqruf/bandori-card-dataset")
+# NOTE: model items use "Name", dataset items use "id" (e.g. "username/my-dataset")
 ```
 
 ### Repo Info
 
 ```python
 # Model info — returns dict
-api.get_model(model_id="Linaqruf/animagine-xl", revision="master")
+api.get_model(model_id="username/my-model", revision="master")
 
 # Dataset info — returns dict
-api.get_dataset(dataset_id="Linaqruf/pixiv-niji-journey", revision="master")
+api.get_dataset(dataset_id="username/my-dataset", revision="master")
 
 # Generic info — returns ModelInfo | DatasetInfo
 api.repo_info(repo_id, repo_type="model", revision="master")
@@ -260,11 +260,11 @@ api.file_exists(repo_id, filename, revision=None) -> bool
 
 ```python
 # Create model
-api.create_model(model_id="Linaqruf/new-model", visibility=5, license="Apache License 2.0")
+api.create_model(model_id="username/new-model", visibility=5, license="Apache License 2.0")
 # visibility: 1=private, 5=public
 
 # Create dataset (note: different param names!)
-api.create_dataset(dataset_name="new-dataset", namespace="Linaqruf", visibility=5,
+api.create_dataset(dataset_name="new-dataset", namespace="username", visibility=5,
                    license="Apache License 2.0")
 
 # Generic create
@@ -272,8 +272,8 @@ api.create_repo(repo_id, repo_type="model", visibility="public", exist_ok=False)
 # visibility: "public" or "private"
 
 # Delete
-api.delete_model(model_id="Linaqruf/old-model")
-api.delete_dataset(dataset_id="Linaqruf/old-dataset")
+api.delete_model(model_id="username/old-model")
+api.delete_dataset(dataset_id="username/old-dataset")
 api.delete_repo(repo_id, repo_type="model")
 
 # Change visibility
@@ -287,7 +287,7 @@ from modelscope.hub.snapshot_download import snapshot_download
 
 # Download entire repo → returns local dir path
 snapshot_download(
-    model_id="Linaqruf/animagine-xl",  # also accepts repo_id= kwarg
+    model_id="username/my-model",  # also accepts repo_id= kwarg
     repo_type="model",                  # "model" or "dataset"
     revision=None,
     local_dir="/path/to/save",
@@ -305,7 +305,7 @@ snapshot_download(
 ```python
 # Upload entire folder
 api.upload_folder(
-    repo_id="Linaqruf/my-model",
+    repo_id="username/my-model",
     folder_path="/local/path",
     path_in_repo="",
     repo_type="model",              # "model" or "dataset"
@@ -317,13 +317,14 @@ api.upload_folder(
     token=None,
 )
 # IMPORTANT: HTTP-based, no git required
-# GOTCHA: Fails with "file already exists" if uploading identical files to existing repo
+# GOTCHA: May fail with "file already exists" during commit if uploading identical files.
+# Use check_repo_exists to skip repos that are already fully migrated.
 
 # Upload single file
 api.upload_file(
     path_or_fileobj="/local/file.bin",
     path_in_repo="file.bin",
-    repo_id="Linaqruf/my-model",
+    repo_id="username/my-model",
     repo_type="model",
     commit_message="Add file",
     revision="master",
@@ -367,7 +368,7 @@ api.list_repo_commits(repo_id, repo_type="model", revision="master",
 | Feature | HuggingFace | ModelScope |
 |---------|-------------|------------|
 | Auth | `HfApi(token=)` or per-call `token=` | `api.login(token)` required first |
-| List repos | `author="Linaqruf"` kwarg | First positional arg: `"Linaqruf"` |
+| List repos | `author="username"` kwarg | First positional arg: `"username"` |
 | List result | Iterable of typed objects | dict with `Models`/`datasets` key |
 | Dataset list key | N/A (iterable) | `result["datasets"]` (lowercase), items have `"id"` |
 | Model list key | N/A (iterable) | `result["Models"]` (uppercase), items have `"Name"` |

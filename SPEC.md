@@ -13,9 +13,9 @@ Migrating ML models, datasets, and spaces between HuggingFace and ModelScope req
 A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as an ephemeral compute bridge. The user says "migrate this repo" and the plugin handles everything — downloading from the source platform and uploading to the destination platform entirely in the cloud.
 
 ### Target Users
-- **Primary**: Plugin author (Linaqruf) — personal workflow tool
-- **Secondary**: A friend who may also use it
-- **Technical Level**: Developer
+- **Primary**: ML developers who maintain repos on both HuggingFace and ModelScope
+- **Secondary**: Teams needing to mirror model/dataset repos across platforms
+- **Technical Level**: Developer (CLI-comfortable, has platform tokens)
 
 ### Success Criteria
 - [x] Migrate a model repo from HF to ModelScope without any files touching the local machine
@@ -40,7 +40,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 **Description**: Download a HuggingFace repo on Modal and upload it to ModelScope.
 **User Story**: As a developer, I want to mirror my HF repos to ModelScope so that my models are accessible on both platforms.
 **Acceptance Criteria**:
-- [x] Accepts a HuggingFace repo ID (e.g., `Linaqruf/animagine-xl-3.1`)
+- [x] Accepts a HuggingFace repo ID (e.g., `username/my-model`)
 - [x] Auto-detects repo type (model/dataset/space) or accepts explicit type
 - [x] Creates the target ModelScope repo if it doesn't exist
 - [x] Transfers all files from source to destination via Modal container
@@ -69,10 +69,11 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 **Description**: A skill that triggers when the user asks to migrate repos, guiding the workflow conversationally.
 **User Story**: As a developer, I want to say "migrate this model to ModelScope" in Claude Code and have it just work.
 **Acceptance Criteria**:
-- [x] Skill triggers on natural language like "migrate", "transfer", "push to ModelScope/HuggingFace"
+- [x] Skill triggers on natural language like "migrate", "transfer", "push to ModelScope/HuggingFace", "batch migrate"
 - [x] Slash command `/migrate` available as explicit entry point
 - [x] Skill asks for source repo if not provided
 - [x] Skill asks for direction if ambiguous
+- [x] Skill asks for destination namespace (never assumes)
 - [x] Skill runs the Modal script and reports results
 
 #### Feature 5: Batch Migration
@@ -113,7 +114,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 #### Primary Flow: Migrate a Repo
 
 ```
-User: "migrate Linaqruf/animagine-xl-3.1 to ModelScope"
+User: "migrate username/my-model to ModelScope"
   │
   ▼
 Skill activates → parses source repo + direction
@@ -125,7 +126,10 @@ Validate credentials (HF_TOKEN, MODAL, MODELSCOPE_TOKEN)
 Detect repo type (model/dataset/space)
   │
   ▼
-Confirm with user: "Migrate model Linaqruf/animagine-xl-3.1 → ModelScope as Linaqruf/animagine-xl-3.1?"
+Confirm destination: "Where should the repo be uploaded?"
+  │  → User's account, same as source, or custom namespace
+  ▼
+Confirm with user: "Migrate model username/my-model → ModelScope as username/my-model?"
   │
   ▼
 Run Modal function:
@@ -135,7 +139,7 @@ Run Modal function:
   └── Return result
   │
   ▼
-Report: "Done! https://modelscope.ai/models/Linaqruf/animagine-xl-3.1"
+Report: "Done! https://modelscope.ai/models/username/my-model"
 ```
 
 #### Reverse Flow: ModelScope → HuggingFace
@@ -225,19 +229,19 @@ Same flow, reversed source/destination SDKs
 **Steps**:
 1. Parse source repo ID and direction from user input
 2. If repo type not specified, detect via HF API (`model_info` / `dataset_info`) or ModelScope API
-3. Validate all required tokens exist and are valid (API call to each platform's `/whoami` or equivalent)
-4. Determine destination repo ID (default: same name under user's namespace)
-5. Create destination repo if it doesn't exist (`create_repo` with `exist_ok=True`)
+3. Check that all required token environment variables (`HF_TOKEN`, `MODELSCOPE_TOKEN`) are set and non-empty
+4. Confirm destination repo ID with user (suggest authenticated username as default, never assume)
+5. Create destination repo if it doesn't exist (HF: `create_repo` with `exist_ok=True`; MS: `repo_exists()` then `create_model()`/`create_dataset()`)
 6. Invoke Modal function with: source_id, dest_id, direction, repo_type, tokens
-7. Modal function: `snapshot_download` from source → `/tmp/repo` → `upload_folder` to destination
+7. Modal function: `snapshot_download` from source → temp directory → `upload_folder` to destination
 8. Return destination URL
 
 **Edge cases**:
-- Source repo doesn't exist → fail with "Repo not found" before invoking Modal
+- Source repo doesn't exist → if auto-detecting type, `detect_repo_type` raises error on Modal container; if type is explicit, fails during `snapshot_download`
 - Destination repo already exists → single mode warns and proceeds (updates files); batch mode skips existing repos
 - Large repo (>50GB) → warn user about potential timeout, suggest `allow_patterns` filter in future
 - Private source repo → works if token has read access
-- Rate limit hit → Modal function retries with backoff (3 attempts max)
+- Rate limit hit → migration fails with error message; no automatic retries
 
 ---
 
@@ -277,7 +281,7 @@ hf2ms/
 │   ├── validate_tokens.py      # Token validation utility
 │   └── utils.py                # Shared helpers (repo ID parsing, etc.)
 │
-└── README.md                   # Setup instructions (optional, for friend)
+└── README.md                   # User-facing documentation (setup, usage, troubleshooting)
 ```
 
 ---
@@ -306,26 +310,26 @@ The `@app.local_entrypoint()` runs on your machine, reads env tokens, and calls 
 
 ```bash
 # Auto-detect repo type, migrate to ModelScope
-modal run scripts/modal_migrate.py --source "Linaqruf/animagine-xl-3.1" --to ms
+modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms
 
 # Explicit type, custom destination name
-modal run scripts/modal_migrate.py --source "Linaqruf/model" --to ms --repo-type model --dest "Linaqruf/model-v2"
+modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --repo-type model --dest "OrgName/model-v2"
 
 # ModelScope → HuggingFace
-modal run scripts/modal_migrate.py --source "damo/text-to-video" --to hf
+modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf
 
 # Platform prefix instead of --to flag
-modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
+modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
 ```
 
 ### Remote Functions
 
 Five Modal functions run in the cloud container:
 - `hello_world` — smoke test (60s timeout)
-- `check_repo_exists` — check if a repo exists on HF or MS (120s timeout, used for skip/warn logic)
-- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout)
-- `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`)
-- `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`)
+- `check_repo_exists` — check if a repo exists on HF or MS (120s timeout); catches only `RepositoryNotFoundError` for HF, lets other errors propagate
+- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout); HF: catches only 404s, surfaces auth/network errors; MS: checks model then dataset, surfaces non-404 errors
+- `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`); includes full traceback on error
+- `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`); passes `repo_type` to MS download
 
 **Important**: Utils imports (`from utils import ...`) must be lazy (inside `main()`) because Modal only auto-mounts the entrypoint file. The remote functions don't use utils.
 
@@ -351,10 +355,12 @@ modal run scripts/modal_migrate.py::batch \
 {
   "name": "hf-modal-modelscope",
   "version": "1.0.0",
-  "description": "Migrate repos between HuggingFace and ModelScope via Modal — no local downloads.",
+  "description": "Migrate repos between HuggingFace and ModelScope via Modal — no local downloads. Supports models, datasets, and spaces with cloud-to-cloud transfer.",
   "license": "MIT",
-  "author": { "name": "Linaqruf" },
-  "keywords": ["huggingface", "modelscope", "modal", "migration"]
+  "author": { "name": "Linaqruf", "url": "https://github.com/Linaqruf" },
+  "repository": "https://github.com/Linaqruf/hf2ms",
+  "homepage": "https://github.com/Linaqruf/hf2ms",
+  "keywords": ["huggingface", "modelscope", "modal", "migration", "model-transfer", "cloud-compute", "ml-ops"]
 }
 ```
 
@@ -366,17 +372,20 @@ The skill should trigger on:
 - "push [repo] to ModelScope/HuggingFace"
 - "copy [repo] from HuggingFace to ModelScope"
 - "mirror [repo]"
+- "batch migrate", "migrate multiple repos", "bulk transfer"
+- "download from ModelScope", "upload to ModelScope"
+- "sync repo between HuggingFace and ModelScope"
 
 ### Slash Command: `/migrate`
 
 ```
-/migrate <source-repo> [--to hf|ms] [--type model|dataset|space]
+/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name]
 ```
 
 Examples:
-- `/migrate Linaqruf/animagine-xl-3.1 --to ms`
+- `/migrate username/my-model --to ms`
 - `/migrate damo/text-to-video --to hf --type model`
-- `/migrate Linaqruf/my-dataset --to ms --type dataset`
+- `/migrate username/my-dataset --to ms --type dataset`
 
 ---
 
@@ -385,13 +394,16 @@ Examples:
 | Error | Detection | Recovery |
 |-------|-----------|----------|
 | Missing token | Check env vars before Modal invocation | Print which token is missing + link to obtain it |
-| Invalid token | API whoami call returns 401 | Print "Token invalid" + re-check instructions |
+| Invalid token | API whoami call returns 401 | Print validation failure with exception type + re-check instructions |
 | Source repo not found | HF/MS API returns 404 | Print "Repo not found" + suggest checking the ID |
+| Auth/network error in detect | Non-404 exception from API | Surface via `RuntimeError` with original error (not masked as "not found") |
 | Destination repo creation fails | API error on create_repo | Print error + suggest checking namespace/permissions |
 | Download timeout | Modal function times out (>3600s) | Print "Repo too large for single transfer" + suggest filtering |
-| Upload failure mid-transfer | API error during upload | Print error + note partial upload may exist on destination |
+| Upload failure mid-transfer | API error during upload | Print error + remote traceback displayed to user |
 | Modal cold start fails | Modal container build fails | Print error + suggest checking Modal account/quota |
-| Network error | Connection timeout/reset | Retry up to 3 times with exponential backoff |
+| Network error | Connection timeout/reset | Migration fails with error + full traceback; no automatic retries |
+| Batch auth failure | Pre-check starmap fails with auth error | Abort entire batch (don't proceed blindly) |
+| Batch infra failure | Starmap throws mid-execution | Report completed count + list repos with unknown status |
 
 ---
 
@@ -419,10 +431,11 @@ Examples:
 
 ### Phase 3: Plugin Integration
 **Depends on**: Phase 2 (migration functions must work)
-- [x] Write `/migrate` slash command (`commands/migrate.md`) — full argument parsing, 5-step workflow
+- [x] Write `/migrate` slash command (`commands/migrate.md`) — full argument parsing, 6-step workflow (validate, direction, destination, confirm, run, report)
 - [x] Write migration skill with trigger patterns (`skills/migrate/SKILL.md`) — conversational extraction, confirmation flow
-- [x] Wire skill to invoke `modal run scripts/modal_migrate.py` via Bash
+- [x] Wire skill to invoke `modal run scripts/modal_migrate.py::main` via Bash
 - [x] Handle argument parsing (source repo, direction, type, custom dest, URL extraction)
+- [x] Add destination namespace confirmation (never assume — ask user, suggest authenticated username)
 - [x] Add user confirmation step before migration starts (AskUserQuestion with confirm/change/cancel)
 
 ### Phase 4: Polish & Testing

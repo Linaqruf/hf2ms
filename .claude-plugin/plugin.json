@@ -4,8 +4,11 @@
   "description": "Migrate repos between HuggingFace and ModelScope via Modal — no local downloads. Supports models, datasets, and spaces with cloud-to-cloud transfer.",
   "license": "MIT",
   "author": {
-    "name": "Linaqruf"
+    "name": "Linaqruf",
+    "url": "https://github.com/Linaqruf"
   },
+  "repository": "https://github.com/Linaqruf/hf2ms",
+  "homepage": "https://github.com/Linaqruf/hf2ms",
   "keywords": [
     "huggingface",
     "modelscope",

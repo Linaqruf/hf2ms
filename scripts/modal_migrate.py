@@ -5,16 +5,16 @@ Usage:
     modal run scripts/modal_migrate.py::hello_world
 
     # Migrate HF → ModelScope (auto-detect repo type)
-    modal run scripts/modal_migrate.py --source "Linaqruf/animagine-xl-3.1" --to ms
+    modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms
 
     # Migrate ModelScope → HF (explicit type)
-    modal run scripts/modal_migrate.py --source "damo/text-to-video" --to hf --repo-type model
+    modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf --repo-type model
 
     # Custom destination name
-    modal run scripts/modal_migrate.py --source "Linaqruf/model" --to ms --dest "Linaqruf/model-copy"
+    modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --dest "OrgName/model-v2"
 
     # Platform prefix instead of --to flag
-    modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
+    modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
 """
 
 from __future__ import annotations
@@ -42,11 +42,12 @@ migrate_image = (
 
 def _format_size(size_bytes: int) -> str:
     """Format byte count as human-readable string."""
+    value = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB", "TB"):
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} PB"
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} PB"
 
 
 def _format_duration(seconds: float) -> str:
@@ -62,6 +63,28 @@ def _format_duration(seconds: float) -> str:
     return f"{hours}h {mins}m"
 
 
+def _strip_protocol(domain: str) -> str:
+    """Strip protocol prefix from a domain string (e.g. 'https://modelscope.ai' -> 'modelscope.ai')."""
+    for prefix in ("https://", "http://"):
+        if domain.startswith(prefix):
+            domain = domain[len(prefix):]
+    return domain.rstrip("/")
+
+
+def _build_url(repo_id: str, platform: str, repo_type: str, ms_domain: str = "") -> str:
+    """Build the web URL for a repo on the given platform.
+
+    Defined at module level so both remote functions can use it
+    (remote functions cannot import from utils.py).
+    """
+    if platform == "hf":
+        type_prefix = {"model": "", "dataset": "datasets/", "space": "spaces/"}
+        return f"https://huggingface.co/{type_prefix.get(repo_type, '')}{repo_id}"
+    domain = _strip_protocol(ms_domain or "modelscope.cn")
+    type_path = "datasets" if repo_type == "dataset" else "models"
+    return f"https://{domain}/{type_path}/{repo_id}"
+
+
 def _dir_stats(path: str) -> tuple[int, int]:
     """Count files and total size in a directory.
 
@@ -75,9 +98,12 @@ def _dir_stats(path: str) -> tuple[int, int]:
     for root, _dirs, files in os.walk(path):
         for f in files:
             fp = os.path.join(root, f)
-            if os.path.isfile(fp):
-                file_count += 1
-                total_bytes += os.path.getsize(fp)
+            try:
+                if os.path.isfile(fp):
+                    file_count += 1
+                    total_bytes += os.path.getsize(fp)
+            except OSError:
+                file_count += 1  # count it but skip size
     return file_count, total_bytes
 
 
@@ -114,6 +140,7 @@ def check_repo_exists(
     """
     if platform == "hf":
         from huggingface_hub import HfApi
+        from huggingface_hub.utils import RepositoryNotFoundError, GatedRepoError
 
         api = HfApi(token=token)
         try:
@@ -124,13 +151,16 @@ def check_repo_exists(
             else:
                 api.model_info(repo_id)
             return True
-        except Exception:
+        except RepositoryNotFoundError:
             return False
+        except GatedRepoError:
+            return True  # repo exists but is gated
+        # All other exceptions (network, auth, rate limit) propagate to caller
 
     elif platform == "ms":
         import os
         if ms_domain:
-            os.environ["MODELSCOPE_DOMAIN"] = ms_domain
+            os.environ["MODELSCOPE_DOMAIN"] = _strip_protocol(ms_domain)
 
         from modelscope.hub.api import HubApi
 
@@ -138,63 +168,88 @@ def check_repo_exists(
         api.login(token)
         return api.repo_exists(repo_id=repo_id, repo_type=repo_type, token=token)
 
-    return False
+    else:
+        raise ValueError(f"Unknown platform: '{platform}'. Expected 'hf' or 'ms'.")
 
 
 @app.function(image=migrate_image, timeout=120)
 def detect_repo_type(repo_id: str, platform: str, token: str, ms_domain: str = "") -> str:
     """Auto-detect whether a repo is a model, dataset, or space.
 
-    Tries model first, then dataset, then falls back to space (HF only).
+    For HuggingFace: tries model, dataset, then space.
+    For ModelScope: tries model, then dataset; raises ValueError if neither matches.
 
     Returns:
         "model", "dataset", or "space"
     """
     if platform == "hf":
         from huggingface_hub import HfApi
+        from huggingface_hub.utils import RepositoryNotFoundError
 
         api = HfApi(token=token)
+        last_error = None
 
-        try:
-            api.model_info(repo_id)
-            return "model"
-        except Exception:
-            pass
+        for type_name, info_fn in [("model", api.model_info), ("dataset", api.dataset_info), ("space", api.space_info)]:
+            try:
+                info_fn(repo_id)
+                return type_name
+            except RepositoryNotFoundError:
+                continue
+            except Exception as e:
+                last_error = e
+                continue
 
-        try:
-            api.dataset_info(repo_id)
-            return "dataset"
-        except Exception:
-            pass
-
-        try:
-            api.space_info(repo_id)
-            return "space"
-        except Exception:
-            pass
+        if last_error is not None:
+            raise RuntimeError(
+                f"Could not detect repo type for '{repo_id}' on HuggingFace. "
+                f"The API returned an error (not a 404): {last_error}"
+            ) from last_error
 
         raise ValueError(f"Repo '{repo_id}' not found on HuggingFace as model, dataset, or space")
 
     elif platform == "ms":
         import os
         if ms_domain:
-            os.environ["MODELSCOPE_DOMAIN"] = ms_domain
+            os.environ["MODELSCOPE_DOMAIN"] = _strip_protocol(ms_domain)
 
         from modelscope.hub.api import HubApi
 
         api = HubApi()
         api.login(token)
 
+        last_error = None
+
         try:
             api.get_model(repo_id)
             return "model"
-        except Exception:
-            pass
+        except Exception as e:
+            if "not found" in str(e).lower() or "404" in str(e):
+                pass  # genuinely not a model, try dataset
+            else:
+                last_error = e
 
-        # Fallback: assume model (ModelScope's primary type)
-        return "model"
+        try:
+            api.get_dataset(repo_id)
+            return "dataset"
+        except Exception as e:
+            if "not found" in str(e).lower() or "404" in str(e):
+                pass
+            else:
+                last_error = e
 
-    raise ValueError(f"Unknown platform: {platform}")
+        if last_error is not None:
+            raise RuntimeError(
+                f"Could not detect repo type for '{repo_id}' on ModelScope. "
+                f"The API returned an error (not a 404): {last_error}"
+            ) from last_error
+
+        # ModelScope has no reliable type detection beyond model/dataset
+        raise ValueError(
+            f"Could not detect repo type for '{repo_id}' on ModelScope. "
+            f"Please specify --repo-type explicitly (model, dataset, or space)."
+        )
+
+    raise ValueError(f"Unknown platform: '{platform}'. Expected 'hf' or 'ms'.")
 
 
 @app.function(image=migrate_image, timeout=3600)
@@ -217,7 +272,7 @@ def migrate_hf_to_ms(
     import time as _time
 
     if ms_domain:
-        os.environ["MODELSCOPE_DOMAIN"] = ms_domain
+        os.environ["MODELSCOPE_DOMAIN"] = _strip_protocol(ms_domain)
 
     from huggingface_hub import snapshot_download
     from modelscope.hub.api import HubApi
@@ -248,10 +303,12 @@ def migrate_hf_to_ms(
         api.login(ms_token)
         if not api.repo_exists(repo_id=ms_repo_id, repo_type=repo_type, token=ms_token):
             if repo_type == "dataset":
-                parts = ms_repo_id.split("/")
+                if "/" not in ms_repo_id:
+                    raise ValueError(f"Invalid ModelScope repo ID: '{ms_repo_id}'. Expected format: 'namespace/name'")
+                namespace, name = ms_repo_id.split("/", 1)
                 api.create_dataset(
-                    dataset_name=parts[1],
-                    namespace=parts[0],
+                    dataset_name=name,
+                    namespace=namespace,
                     visibility=5,  # public
                 )
             else:
@@ -277,13 +334,7 @@ def migrate_hf_to_ms(
         ul_time = _time.time() - ul_start
 
         total_time = _time.time() - start
-        domain = ms_domain or "modelscope.cn"
-        # Strip protocol if present (SDK expects bare domain)
-        for _p in ("https://", "http://"):
-            if domain.startswith(_p):
-                domain = domain[len(_p):]
-        type_path = "datasets" if repo_type == "dataset" else "models"
-        url = f"https://{domain.rstrip('/')}/{type_path}/{ms_repo_id}"
+        url = _build_url(ms_repo_id, "ms", repo_type, ms_domain)
         print(f"       Uploaded in {_format_duration(ul_time)}")
         print(f"       Total: {_format_duration(total_time)}")
         print(f"       URL: {url}")
@@ -297,16 +348,23 @@ def migrate_hf_to_ms(
         }
 
     except Exception as e:
+        import traceback
         total_time = _time.time() - start
+        tb = traceback.format_exc()
         print(f"ERROR after {_format_duration(total_time)}: {e}")
+        print(f"Traceback:\n{tb}")
         return {
             "status": "error",
             "error": str(e),
+            "traceback": tb,
             "duration": _format_duration(total_time),
         }
 
     finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+        try:
+            shutil.rmtree(work_dir)
+        except OSError as e:
+            print(f"WARNING: Failed to clean up {work_dir}: {e}")
 
 
 @app.function(image=migrate_image, timeout=3600)
@@ -329,7 +387,7 @@ def migrate_ms_to_hf(
     import time as _time
 
     if ms_domain:
-        os.environ["MODELSCOPE_DOMAIN"] = ms_domain
+        os.environ["MODELSCOPE_DOMAIN"] = _strip_protocol(ms_domain)
 
     from huggingface_hub import HfApi
     from modelscope.hub.snapshot_download import snapshot_download as ms_snapshot_download
@@ -339,12 +397,14 @@ def migrate_ms_to_hf(
 
     try:
         # Step 1: Download from ModelScope
+        # NOTE: repo_type is passed for datasets below. Only model downloads
+        # are well-tested for MS->HF direction.
         print(f"[1/2] Downloading {ms_repo_id} ({repo_type}) from ModelScope...")
         dl_start = _time.time()
-        local_dir = ms_snapshot_download(
-            model_id=ms_repo_id,
-            cache_dir=work_dir,
-        )
+        dl_kwargs = {"model_id": ms_repo_id, "cache_dir": work_dir}
+        if repo_type == "dataset":
+            dl_kwargs["repo_type"] = "dataset"
+        local_dir = ms_snapshot_download(**dl_kwargs)
         dl_time = _time.time() - dl_start
 
         file_count, total_bytes = _dir_stats(local_dir)
@@ -364,8 +424,7 @@ def migrate_ms_to_hf(
         ul_time = _time.time() - ul_start
 
         total_time = _time.time() - start
-        type_prefix = {"model": "", "dataset": "datasets/", "space": "spaces/"}
-        url = f"https://huggingface.co/{type_prefix.get(repo_type, '')}{hf_repo_id}"
+        url = _build_url(hf_repo_id, "hf", repo_type)
         print(f"       Uploaded in {_format_duration(ul_time)}")
         print(f"       Total: {_format_duration(total_time)}")
         print(f"       URL: {url}")
@@ -379,16 +438,23 @@ def migrate_ms_to_hf(
         }
 
     except Exception as e:
+        import traceback
         total_time = _time.time() - start
+        tb = traceback.format_exc()
         print(f"ERROR after {_format_duration(total_time)}: {e}")
+        print(f"Traceback:\n{tb}")
         return {
             "status": "error",
             "error": str(e),
+            "traceback": tb,
             "duration": _format_duration(total_time),
         }
 
     finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+        try:
+            shutil.rmtree(work_dir)
+        except OSError as e:
+            print(f"WARNING: Failed to clean up {work_dir}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -425,8 +491,7 @@ def main(
         repo_id, source_platform = parse_repo_id(source)
 
         # 2. Determine direction
-        to_flag = to if to else None
-        src_plat, dst_plat = detect_direction(source_platform, to_flag)
+        src_plat, dst_plat = detect_direction(source_platform, to or None)
 
         # 3. Read tokens and domain config
         print()
@@ -511,6 +576,11 @@ def main(
             print("  Migration FAILED")
             print(f"  Error:    {result.get('error', 'Unknown error')}")
             print(f"  Duration: {result.get('duration', 'N/A')}")
+            if result.get("traceback"):
+                print()
+                print("  Remote traceback:")
+                for tb_line in result["traceback"].splitlines():
+                    print(f"    {tb_line}")
             print()
             print("  Troubleshooting:")
             error_msg = result.get("error", "").lower()
@@ -529,13 +599,14 @@ def main(
         print()
         print(f"ERROR: {e}")
         print()
-        print("Usage: modal run scripts/modal_migrate.py --source <repo> --to <hf|ms>")
+        print("Usage: modal run scripts/modal_migrate.py::main --source <repo> --to <hf|ms>")
         print("  See README.md for examples.")
 
     except Exception as e:
+        import traceback
         print()
         print(f"Unexpected error: {e}")
-        print()
+        print(traceback.format_exc())
         print("If this persists, check:")
         print("  - Modal account: modal token verify")
         print("  - Platform tokens: python scripts/validate_tokens.py")
@@ -550,129 +621,156 @@ def batch(
     """Migrate multiple repos in parallel using multiple Modal containers.
 
     Args:
-        source: Comma-separated repo IDs (e.g., "user/repo1,user/repo2,user/repo3")
-        to: Destination platform — "hf" or "ms".
-        repo_type: "model", "dataset", or "space". Applied to all repos.
+        source: Comma-separated repo IDs (e.g., "user/repo1,user/repo2,user/repo3").
+            Can also use platform prefixes (e.g., "hf:user/repo1,hf:user/repo2").
+        to: Destination platform — "hf" or "ms". Optional if repos use platform prefixes.
+        repo_type: "model", "dataset", or "space". Applied to all repos (default: model).
     """
-    from utils import get_env_token, get_ms_domain, parse_repo_id, detect_direction
+    from utils import detect_direction, get_env_token, get_ms_domain, parse_repo_id
 
-    repo_list = [r.strip() for r in source.split(",") if r.strip()]
-    if not repo_list:
-        print("ERROR: No repos provided. Use comma-separated list.")
-        return
+    try:
+        repo_list = [r.strip() for r in source.split(",") if r.strip()]
+        if not repo_list:
+            print("ERROR: No repos provided. Use comma-separated list.")
+            return
 
-    print()
-    print("=" * 60)
-    print(f"  HF2MS Batch Migration — {len(repo_list)} repos")
-    print("=" * 60)
+        print()
+        print("=" * 60)
+        print(f"  HF2MS Batch Migration — {len(repo_list)} repos")
+        print("=" * 60)
 
-    # Credentials
-    print()
-    print("Checking credentials...")
-    hf_token = get_env_token("HF_TOKEN")
-    ms_token = get_env_token("MODELSCOPE_TOKEN")
-    ms_domain = get_ms_domain()
-    print("  HF_TOKEN: OK")
-    print("  MODELSCOPE_TOKEN: OK")
-    print(f"  MODELSCOPE_DOMAIN: {ms_domain}")
+        # Credentials
+        print()
+        print("Checking credentials...")
+        hf_token = get_env_token("HF_TOKEN")
+        ms_token = get_env_token("MODELSCOPE_TOKEN")
+        ms_domain = get_ms_domain()
+        print("  HF_TOKEN: OK")
+        print("  MODELSCOPE_TOKEN: OK")
+        print(f"  MODELSCOPE_DOMAIN: {ms_domain}")
 
-    # Parse all repos and determine direction
-    jobs = []
-    for raw in repo_list:
-        repo_id, source_platform = parse_repo_id(raw)
-        to_flag = to if to else None
-        src_plat, dst_plat = detect_direction(source_platform, to_flag)
-        jobs.append((repo_id, src_plat, dst_plat))
+        # Parse all repos and determine direction
+        jobs = []
+        for raw in repo_list:
+            repo_id, source_platform = parse_repo_id(raw)
+            to_flag = to if to else None
+            src_plat, dst_plat = detect_direction(source_platform, to_flag)
+            jobs.append((repo_id, src_plat, dst_plat))
 
-    # Print plan
-    print()
-    print(f"  Repos ({repo_type}):")
-    for repo_id, src_plat, dst_plat in jobs:
-        src_name = "HF" if src_plat == "hf" else "MS"
-        dst_name = "HF" if dst_plat == "hf" else "MS"
-        print(f"    {src_name} -> {dst_name}  {repo_id}")
-    print()
+        # Print plan
+        print()
+        print(f"  Repos ({repo_type}):")
+        for repo_id, src_plat, dst_plat in jobs:
+            src_name = "HF" if src_plat == "hf" else "MS"
+            dst_name = "HF" if dst_plat == "hf" else "MS"
+            print(f"    {src_name} -> {dst_name}  {repo_id}")
+        print()
 
-    # Pre-check: which repos already exist on destination?
-    print("Checking destination repos for existing copies...")
-    check_args = []
-    for repo_id, src_plat, dst_plat in jobs:
-        dest_token = ms_token if dst_plat == "ms" else hf_token
-        check_args.append((repo_id, dst_plat, repo_type, dest_token, ms_domain))
+        # Pre-check: which repos already exist on destination?
+        print("Checking destination repos for existing copies...")
+        check_args = []
+        for repo_id, src_plat, dst_plat in jobs:
+            dest_token = ms_token if dst_plat == "ms" else hf_token
+            check_args.append((repo_id, dst_plat, repo_type, dest_token, ms_domain))
 
-    existing = set()
-    for i, exists in enumerate(check_repo_exists.starmap(check_args)):
-        repo_id = jobs[i][0]
-        if exists:
-            existing.add(repo_id)
-            print(f"  SKIP {repo_id} — already exists on destination")
+        existing = set()
+        try:
+            for i, exists in enumerate(check_repo_exists.starmap(check_args)):
+                repo_id = jobs[i][0]
+                if exists:
+                    existing.add(repo_id)
+                    print(f"  SKIP {repo_id} — already exists on destination")
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "auth" in error_msg or "token" in error_msg or "401" in error_msg or "403" in error_msg:
+                print(f"  ERROR: Pre-check failed due to authentication issue: {e}")
+                print("  Cannot proceed without valid credentials. Aborting batch.")
+                return
+            print(f"  WARNING: Pre-check failed ({e}). Proceeding without skipping existing repos.")
 
-    if existing:
-        print(f"  Skipping {len(existing)} existing repo(s)")
-    else:
-        print("  No existing repos found, migrating all")
-    print()
+        if existing:
+            print(f"  Skipping {len(existing)} existing repo(s)")
+        else:
+            print("  No existing repos found, migrating all")
+        print()
 
-    # Build starmap args based on direction (excluding existing)
-    start = time.time()
-    hf_to_ms_args = []
-    ms_to_hf_args = []
-    for repo_id, src_plat, dst_plat in jobs:
-        if repo_id in existing:
-            continue
-        if src_plat == "hf" and dst_plat == "ms":
-            hf_to_ms_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
-        elif src_plat == "ms" and dst_plat == "hf":
-            ms_to_hf_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
+        # Build starmap args based on direction (excluding existing)
+        start = time.time()
+        hf_to_ms_args = []
+        ms_to_hf_args = []
+        for repo_id, src_plat, dst_plat in jobs:
+            if repo_id in existing:
+                continue
+            if src_plat == "hf" and dst_plat == "ms":
+                hf_to_ms_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
+            elif src_plat == "ms" and dst_plat == "hf":
+                ms_to_hf_args.append((repo_id, repo_id, repo_type, hf_token, ms_token, ms_domain))
 
-    total_to_migrate = len(hf_to_ms_args) + len(ms_to_hf_args)
-    if total_to_migrate == 0:
-        print("All repos already exist on destination. Nothing to migrate.")
-        return
+        total_to_migrate = len(hf_to_ms_args) + len(ms_to_hf_args)
+        if total_to_migrate == 0:
+            print("All repos already exist on destination. Nothing to migrate.")
+            return
 
-    print(f"Launching {total_to_migrate} parallel containers...")
-    print()
+        print(f"Launching {total_to_migrate} parallel containers...")
+        print()
 
-    results = []
+        results = []
 
-    # Fan out HF->MS jobs
-    if hf_to_ms_args:
-        for result in migrate_hf_to_ms.starmap(hf_to_ms_args):
-            repo_id = hf_to_ms_args[len(results)][0]
-            status = result.get("status", "error")
-            if status == "success":
-                print(f"  OK  {repo_id} — {result['file_count']} files, {result['total_size']}, {result['duration']}")
-            else:
-                print(f"  FAIL {repo_id} — {result.get('error', 'Unknown')}")
-            results.append((repo_id, result))
+        def _run_starmap(fn, args, label, results):
+            """Fan out jobs via starmap, tracking completed and in-flight repos."""
+            if not args:
+                return
+            try:
+                for i, result in enumerate(fn.starmap(args)):
+                    repo_id = args[i][0]
+                    status = result.get("status", "error")
+                    if status == "success":
+                        print(f"  OK  {repo_id} — {result['file_count']} files, {result['total_size']}, {result['duration']}")
+                    else:
+                        print(f"  FAIL {repo_id} — {result.get('error', 'Unknown')}")
+                    results.append((repo_id, result))
+            except Exception as e:
+                completed_ids = {r[0] for r in results}
+                in_flight = [a[0] for a in args if a[0] not in completed_ids]
+                print(f"\n  BATCH ERROR ({label}): {e}")
+                print(f"  {len(results)} repos completed before failure.")
+                if in_flight:
+                    print(f"  Status unknown for: {', '.join(in_flight)}")
 
-    # Fan out MS->HF jobs
-    if ms_to_hf_args:
-        offset = len(results)
-        for result in migrate_ms_to_hf.starmap(ms_to_hf_args):
-            repo_id = ms_to_hf_args[len(results) - offset][0]
-            status = result.get("status", "error")
-            if status == "success":
-                print(f"  OK  {repo_id} — {result['file_count']} files, {result['total_size']}, {result['duration']}")
-            else:
-                print(f"  FAIL {repo_id} — {result.get('error', 'Unknown')}")
-            results.append((repo_id, result))
+        _run_starmap(migrate_hf_to_ms, hf_to_ms_args, "HF->MS", results)
+        _run_starmap(migrate_ms_to_hf, ms_to_hf_args, "MS->HF", results)
 
-    # Summary
-    total_time = time.time() - start
-    succeeded = sum(1 for _, r in results if r.get("status") == "success")
-    failed = len(results) - succeeded
-    skipped = len(existing)
+        # Summary
+        total_time = time.time() - start
+        succeeded = sum(1 for _, r in results if r.get("status") == "success")
+        failed = len(results) - succeeded
+        skipped = len(existing)
 
-    print()
-    print("=" * 60)
-    print(f"  Batch complete in {_format_duration(total_time)}")
-    print(f"  Succeeded: {succeeded}/{len(results)}")
-    if skipped:
-        print(f"  Skipped:   {skipped} (already exist)")
-    if failed:
-        print(f"  Failed:    {failed}")
-        for repo_id, r in results:
-            if r.get("status") != "success":
-                print(f"    - {repo_id}: {r.get('error', 'Unknown')}")
-    print("=" * 60)
+        print()
+        print("=" * 60)
+        print(f"  Batch complete in {_format_duration(total_time)}")
+        print(f"  Succeeded: {succeeded}/{len(results)}")
+        if skipped:
+            print(f"  Skipped:   {skipped} (already exist)")
+        if failed:
+            print(f"  Failed:    {failed}")
+            for repo_id, r in results:
+                if r.get("status") != "success":
+                    print(f"    - {repo_id}: {r.get('error', 'Unknown')}")
+        print("=" * 60)
+
+    except ValueError as e:
+        print()
+        print(f"ERROR: {e}")
+        print()
+        print("Usage: modal run scripts/modal_migrate.py::batch --source \"repo1,repo2\" --to <hf|ms> --repo-type <type>")
+        print("  See README.md for examples.")
+
+    except Exception as e:
+        import traceback
+        print()
+        print(f"Unexpected error: {e}")
+        print(traceback.format_exc())
+        print("If this persists, check:")
+        print("  - Modal account: modal token verify")
+        print("  - Platform tokens: python scripts/validate_tokens.py")

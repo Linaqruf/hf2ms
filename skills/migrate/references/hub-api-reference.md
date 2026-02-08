@@ -1,6 +1,6 @@
 # Hub API Reference — HuggingFace & ModelScope
 
-Quick-reference for Python SDK methods. No need to fetch docs or use context7.
+Inline reference for Python SDK methods — no external documentation lookups needed.
 
 ---
 

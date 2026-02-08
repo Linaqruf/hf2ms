@@ -19,9 +19,10 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 
 ### Success Criteria
 - [x] Migrate a model repo from HF to ModelScope without any files touching the local machine
-- [ ] Migrate in reverse (ModelScope to HF) with the same command
+- [ ] Migrate in reverse (ModelScope to HF) with the same command — code exists, untested
 - [x] Support all three HF repo types: models, datasets, spaces
 - [x] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
+- [x] Batch migrate multiple repos in parallel (17 models + 3 datasets = 20 repos migrated)
 
 > **Test results**:
 > - Single model: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s
@@ -39,47 +40,67 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 **Description**: Download a HuggingFace repo on Modal and upload it to ModelScope.
 **User Story**: As a developer, I want to mirror my HF repos to ModelScope so that my models are accessible on both platforms.
 **Acceptance Criteria**:
-- [ ] Accepts a HuggingFace repo ID (e.g., `Linaqruf/animagine-xl-3.1`)
-- [ ] Auto-detects repo type (model/dataset/space) or accepts explicit type
-- [ ] Creates the target ModelScope repo if it doesn't exist
-- [ ] Transfers all files from source to destination via Modal container
-- [ ] Reports progress (downloading... uploading... done)
-- [ ] Outputs the destination repo URL on success
+- [x] Accepts a HuggingFace repo ID (e.g., `Linaqruf/animagine-xl-3.1`)
+- [x] Auto-detects repo type (model/dataset/space) or accepts explicit type
+- [x] Creates the target ModelScope repo if it doesn't exist
+- [x] Transfers all files from source to destination via Modal container
+- [x] Reports progress (downloading... uploading... done)
+- [x] Outputs the destination repo URL on success
 
 #### Feature 2: ModelScope → HuggingFace Migration
 **Description**: Download a ModelScope repo on Modal and upload it to HuggingFace.
 **User Story**: As a developer, I want to pull repos from ModelScope to HuggingFace so I can consolidate or share on either platform.
 **Acceptance Criteria**:
-- [ ] Accepts a ModelScope model/dataset ID
-- [ ] Creates the target HuggingFace repo if it doesn't exist
-- [ ] Transfers all files via Modal container
-- [ ] Reports progress and outputs destination URL
+- [x] Accepts a ModelScope model/dataset ID
+- [x] Creates the target HuggingFace repo if it doesn't exist
+- [x] Transfers all files via Modal container
+- [x] Reports progress and outputs destination URL
+- [ ] End-to-end test pending
 
 #### Feature 3: Credential Validation
 **Description**: Verify all three platform tokens before starting migration.
 **User Story**: As a developer, I want early feedback if my tokens are invalid so I don't waste time on a migration that will fail halfway.
 **Acceptance Criteria**:
-- [ ] Checks `HF_TOKEN`, `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `MODELSCOPE_TOKEN` from environment
-- [ ] Reports which tokens are missing or invalid before starting any transfer
-- [ ] Provides clear instructions for obtaining each token
+- [x] Checks `HF_TOKEN`, `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `MODELSCOPE_TOKEN` from environment
+- [x] Reports which tokens are missing or invalid before starting any transfer
+- [x] Provides clear instructions for obtaining each token
 
 #### Feature 4: Claude Code Skill Integration
 **Description**: A skill that triggers when the user asks to migrate repos, guiding the workflow conversationally.
 **User Story**: As a developer, I want to say "migrate this model to ModelScope" in Claude Code and have it just work.
 **Acceptance Criteria**:
-- [ ] Skill triggers on natural language like "migrate", "transfer", "push to ModelScope/HuggingFace"
-- [ ] Slash command `/migrate` available as explicit entry point
-- [ ] Skill asks for source repo if not provided
-- [ ] Skill asks for direction if ambiguous
-- [ ] Skill runs the Modal script and reports results
+- [x] Skill triggers on natural language like "migrate", "transfer", "push to ModelScope/HuggingFace"
+- [x] Slash command `/migrate` available as explicit entry point
+- [x] Skill asks for source repo if not provided
+- [x] Skill asks for direction if ambiguous
+- [x] Skill runs the Modal script and reports results
+
+#### Feature 5: Batch Migration
+**Description**: Migrate multiple repos in parallel using Modal's `starmap()`.
+**User Story**: As a developer, I want to migrate all my repos at once instead of one by one.
+**Acceptance Criteria**:
+- [x] Accepts comma-separated repo IDs
+- [x] Each repo runs in its own parallel container
+- [x] Pre-checks destination existence, skips repos that already exist
+- [x] Reports per-repo status and overall summary with success/fail/skipped counts
+
+#### Feature 6: Destination Existence Check
+**Description**: Check if destination repo already exists before migrating.
+**User Story**: As a developer, I don't want to waste time re-migrating repos that are already on the destination.
+**Acceptance Criteria**:
+- [x] Single mode: warns if destination exists, proceeds with overwrite
+- [x] Batch mode: skips existing repos automatically
+- [x] Checks run in parallel for batch operations
 
 ### Future Scope (Post-MVP)
-1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 17 models, ~189 GB in 43m44s.
-2. Model format conversion during migration (e.g., safetensors to GGUF)
-3. Selective file migration (filter by pattern, e.g., only `.safetensors`)
-4. Persistent Modal Volume for caching frequently transferred repos
-5. Bidirectional sync (keep repos in sync automatically)
-6. Dry-run mode (show what would be transferred without doing it)
+1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 20 repos, ~252 GB.
+2. ~~Destination existence check~~ — **Done.** Single mode warns, batch mode auto-skips existing repos.
+3. Model format conversion during migration (e.g., safetensors to GGUF)
+4. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
+5. Persistent Modal Volume for caching frequently transferred repos
+6. Bidirectional sync (keep repos in sync automatically)
+7. Dry-run mode (show what would be transferred without doing it)
+8. `--force` flag to overwrite existing destination repos in batch mode
 
 ### Out of Scope
 - Model format conversion or quantization
@@ -247,7 +268,9 @@ hf2ms/
 │
 ├── skills/
 │   └── migrate/
-│       └── SKILL.md            # Migration skill (triggers on natural language)
+│       ├── SKILL.md            # Migration skill (triggers on natural language)
+│       └── references/
+│           └── hub-api-reference.md  # HuggingFace & ModelScope SDK reference
 │
 ├── scripts/
 │   ├── modal_migrate.py        # Modal app: migration functions
@@ -297,7 +320,7 @@ modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
 
 ### Remote Functions
 
-Four Modal functions run in the cloud container:
+Five Modal functions run in the cloud container:
 - `hello_world` — smoke test (60s timeout)
 - `check_repo_exists` — check if a repo exists on HF or MS (120s timeout, used for skip/warn logic)
 - `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout)
@@ -421,10 +444,10 @@ Examples:
 | # | Question | Options | Impact | Status |
 |---|----------|---------|--------|--------|
 | 1 | ModelScope SDK version — older `modelscope` vs newer `modelhub` API? | Use `modelscope.hub.api.HubApi` — `create_model()` + `upload_folder()` (HTTP-based, no git). `push_model()` was deprecated and required git. | Affects upload implementation in Modal function | Resolved |
-| 2 | ModelScope repo naming — does namespace differ from HF? | A) Map HF username → MS username directly, B) Ask user for MS namespace | Affects auto-naming of destination repos | Open |
-| 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Open |
-| 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Open |
-| 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — 15.6 GB completed in 7m30s, well within 3600s |
+| 2 | ModelScope repo naming — does namespace differ from HF? | A) Map HF username → MS username directly, B) Ask user for MS namespace | Affects auto-naming of destination repos | Resolved — same name works fine, `--dest` flag available for custom mapping |
+| 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Open — uploading as model repo is the plan, untested |
+| 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — 58.5 GB (pixiv-niji-journey) completed in 19m48s with no issues |
+| 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — 58.5 GB in 19m48s, well within 3600s |
 
 ---
 

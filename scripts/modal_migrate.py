@@ -354,7 +354,9 @@ def migrate_hf_to_ms(
         print(f"[2/3] Ensuring ModelScope repo exists: {ms_repo_id}...")
         api = HubApi()
         api.login(ms_token)
-        if not api.repo_exists(repo_id=ms_repo_id, repo_type=repo_type, token=ms_token):
+        # ModelScope API doesn't support repo_type "space" — check as "model"
+        ms_check_type = "model" if repo_type == "space" else repo_type
+        if not api.repo_exists(repo_id=ms_repo_id, repo_type=ms_check_type, token=ms_token):
             if repo_type == "dataset":
                 if "/" not in ms_repo_id:
                     raise ValueError(f"Invalid ModelScope repo ID: '{ms_repo_id}'. Expected format: 'namespace/name'")

@@ -473,7 +473,7 @@ Examples:
 - [x] Test with larger repos (15.6 GB model — hitokomoru-diffusion-v2)
 - [x] Test batch migration — models (17 repos, ~189 GB, 43m44s)
 - [x] Test batch migration — datasets (3 repos, ~63 GB)
-- [ ] Test all repo types (model done, dataset done, space — bug found: MS API rejects repo_type "space", fixed to check as "model")
+- [x] Test all repo types (model done, dataset done, space done — pnginfo 22 files, 8.6 MB, 11.5s as model repo)
 - [x] Test both directions (HF→MS done, MS→HF done — furina-xl-lora 163 MB, 18.2s)
 - [x] Test error cases (nonexistent repo: clean error "Repo not found on HuggingFace as model, dataset, or space")
 - [x] Write README with setup instructions
@@ -497,7 +497,7 @@ Examples:
 |---|----------|---------|--------|--------|
 | 1 | ModelScope SDK version — older `modelscope` vs newer `modelhub` API? | Use `modelscope.hub.api.HubApi` — `create_model()` + `upload_folder()` (HTTP-based, no git). `push_model()` was deprecated and required git. | Affects upload implementation in Modal function | Resolved |
 | 2 | ModelScope repo naming — does namespace differ from HF? | A) Map HF username → MS username directly, B) Ask user for MS namespace | Affects auto-naming of destination repos | Resolved — same name works fine, `--dest` flag available for custom mapping |
-| 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Partially resolved — uploading as model repo; fixed `check_repo_exists` to map space→model for MS API (which rejects repo_type "space"). Needs end-to-end retest. |
+| 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Resolved — spaces upload as model repos. Fixed both `check_repo_exists` and `migrate_hf_to_ms` to map space→model for MS API. Tested: pnginfo 22 files, 8.6 MB, 11.5s. |
 | 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — 58.5 GB (pixiv-niji-journey) completed in 19m48s with no issues |
 | 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — 58.5 GB in 19m48s, well within 3600s |
 

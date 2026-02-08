@@ -49,7 +49,7 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; python "${CLA
 
 If any tokens are missing or invalid, show the user the output and stop. Do NOT proceed without valid tokens.
 
-**Important:** Note the authenticated HuggingFace username from the output (e.g., "Authenticated as: Linaqruf"). When the destination is HuggingFace, use this exact username (case-sensitive) as the default destination namespace — do NOT assume the source repo's namespace matches the HF account.
+**Important:** Note the authenticated usernames from the output (e.g., "Authenticated as: Linaqruf"). These will be needed for the destination namespace step.
 
 ### Step 2: Determine Direction
 
@@ -66,7 +66,27 @@ If the direction cannot be determined from the arguments (no `--to` flag, no pla
 }
 ```
 
-### Step 3: Confirm Migration
+### Step 3: Confirm Destination
+
+Do NOT assume the destination namespace matches the source. If the user did not provide `--dest`, ask where to upload. Use the authenticated username from Step 1 as the suggested default:
+
+```typescript
+{
+  question: "Where should the repo be uploaded? Your authenticated [Platform] account is [username].",
+  header: "Destination",
+  options: [
+    { label: "[username]/[repo-name]", description: "Upload to your personal account" },
+    { label: "Same as source", description: "Use [source-namespace]/[repo-name] (may fail if you don't own this namespace)" },
+    { label: "Custom namespace", description: "Specify a different org or account" }
+  ]
+}
+```
+
+If the user picks "Custom namespace", ask for the full `namespace/repo-name`.
+
+Skip this step if the user already provided `--dest` explicitly.
+
+### Step 4: Confirm Migration
 
 Before running, always confirm with the user. Show:
 
@@ -94,7 +114,7 @@ Use AskUserQuestion:
 
 If the user chooses "Change settings", ask what to change and re-confirm.
 
-### Step 4: Run Migration
+### Step 5: Run Migration
 
 Load `.env` and execute the Modal migration command. Always use `::main` entrypoint and set `PYTHONIOENCODING=utf-8` (prevents Unicode errors from Modal CLI on Windows):
 
@@ -106,9 +126,9 @@ Build the command from the parsed arguments:
 - Always include `--source` and `--to`
 - Always use `::main` entrypoint (not bare `modal_migrate.py`)
 - Include `--repo-type` only if the user specified it (otherwise let it auto-detect)
-- Include `--dest` only if different from source
+- Always include `--dest` with the confirmed destination from Step 3
 
-### Step 5: Report Result
+### Step 6: Report Result
 
 After the command completes:
 

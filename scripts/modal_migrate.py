@@ -216,10 +216,7 @@ def check_repo_exists(
 
         api = HubApi()
         api.login(token)
-        # ModelScope API doesn't support repo_type "space" — fall back to
-        # checking as "model" since spaces are uploaded as model repos on MS.
-        check_type = "model" if repo_type == "space" else repo_type
-        return api.repo_exists(repo_id=repo_id, repo_type=check_type, token=token)
+        return api.repo_exists(repo_id=repo_id, repo_type=repo_type, token=token)
 
     else:
         raise ValueError(f"Unknown platform: '{platform}'. Expected 'hf' or 'ms'.")
@@ -354,9 +351,7 @@ def migrate_hf_to_ms(
         print(f"[2/3] Ensuring ModelScope repo exists: {ms_repo_id}...")
         api = HubApi()
         api.login(ms_token)
-        # ModelScope API doesn't support repo_type "space" — check as "model"
-        ms_check_type = "model" if repo_type == "space" else repo_type
-        if not api.repo_exists(repo_id=ms_repo_id, repo_type=ms_check_type, token=ms_token):
+        if not api.repo_exists(repo_id=ms_repo_id, repo_type=repo_type, token=ms_token):
             if repo_type == "dataset":
                 if "/" not in ms_repo_id:
                     raise ValueError(f"Invalid ModelScope repo ID: '{ms_repo_id}'. Expected format: 'namespace/name'")
@@ -571,10 +566,18 @@ def main(
             repo_type = detect_repo_type.remote(repo_id, src_plat, detect_token, ms_domain)
             print(f"  Detected: {repo_type}")
 
-        # 5. Determine destination repo ID
+        # 5. Reject spaces when destination is ModelScope
+        if repo_type == "space" and dst_plat == "ms":
+            print()
+            print("WARNING: ModelScope does not support Spaces (Studios).")
+            print("  ModelScope Studios can only be created via the web UI or git — the SDK has no support.")
+            print("  Skipping migration. To migrate space files as a model repo, use --repo-type model.")
+            return
+
+        # 6. Determine destination repo ID
         dest_repo_id = dest if dest else repo_id
 
-        # 6. Summary
+        # 7. Summary
         src_name = "HuggingFace" if src_plat == "hf" else "ModelScope"
         dst_name = "HuggingFace" if dst_plat == "hf" else "ModelScope"
         src_url = build_url(repo_id, src_plat, repo_type)
@@ -589,14 +592,14 @@ def main(
         print("-" * 50)
         print()
 
-        # 7. Check if destination repo already exists
+        # 8. Check if destination repo already exists
         dest_token = ms_token if dst_plat == "ms" else hf_token
         dest_exists = check_repo_exists.remote(dest_repo_id, dst_plat, repo_type, dest_token, ms_domain)
         if dest_exists:
             print(f"  NOTE: {dest_repo_id} already exists on {dst_name}. Files will be updated/overwritten.")
             print()
 
-        # 8. Run migration
+        # 9. Run migration
         start = time.time()
         print("Starting migration...")
         print()
@@ -623,7 +626,7 @@ def main(
             print(f"ERROR: Unsupported direction {src_plat} -> {dst_plat}")
             return
 
-        # 9. Report
+        # 10. Report
         print()
         print("=" * 50)
         if result["status"] == "success":

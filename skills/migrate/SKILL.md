@@ -41,7 +41,7 @@ Each migration spins up a fresh Modal container, transfers files via platform SD
 |------|----------|----------|-------|
 | Models | Yes | Yes | Weights, configs, tokenizers |
 | Datasets | Yes | Yes | Data files, metadata |
-| Spaces | Partial (as model repo) | N/A | ModelScope has no Spaces equivalent |
+| Spaces | Skipped (warning) | N/A | ModelScope Studios are web/git only — SDK has no support |
 
 ## Prerequisites
 
@@ -98,7 +98,7 @@ The `/migrate` command infers direction from natural language (e.g., "to ModelSc
 
 - **Repo already exists on destination**: Single mode proceeds with a warning (files are updated/overwritten). Batch mode auto-skips existing repos.
 - **Private source repo**: Works if the source token has read access.
-- **Spaces to ModelScope**: Space files are uploaded as a model repo (ModelScope has no Spaces equivalent).
+- **Spaces to ModelScope**: Skipped with a warning. ModelScope Studios are web/git only — the SDK has no support. To force migration as a model repo, use `--repo-type model`.
 - **Large repos (>10GB)**: The Modal function has a 3600s (1 hour) timeout. Tested up to 58.5 GB successfully.
 - **ModelScope namespace**: Defaults to same as source. Destination namespace must already exist on ModelScope or match the authenticated user.
 

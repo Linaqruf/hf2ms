@@ -175,7 +175,7 @@ Or visit the [Modal dashboard](https://modal.com/apps) in your browser.
 |------|---------|---------|
 | Models | Yes | Yes |
 | Datasets | Yes | Yes |
-| Spaces | Yes (files only) | N/A |
+| Spaces | Skipped (warning) | N/A |
 
 ## Troubleshooting
 

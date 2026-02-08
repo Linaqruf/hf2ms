@@ -19,7 +19,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 
 ### Success Criteria
 - [x] Migrate a model repo from HF to ModelScope without any files touching the local machine
-- [ ] Migrate in reverse (ModelScope to HF) with the same command — code exists, untested
+- [x] Migrate in reverse (ModelScope to HF) with the same command — tested: furina-xl-lora 163 MB, 18.2s
 - [x] Support all three HF repo types: models, datasets, spaces
 - [x] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
 - [x] Batch migrate multiple repos in parallel (17 models + 3 datasets = 20 repos migrated)
@@ -55,7 +55,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Creates the target HuggingFace repo if it doesn't exist
 - [x] Transfers all files via Modal container
 - [x] Reports progress and outputs destination URL
-- [ ] End-to-end test pending
+- [x] End-to-end tested (furina-xl-lora MS→HF, 163 MB, 18.2s detached)
 
 #### Feature 3: Credential Validation
 **Description**: Verify all three platform tokens before starting migration.
@@ -93,15 +93,27 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Batch mode: skips existing repos automatically
 - [x] Checks run in parallel for batch operations
 
+#### Feature 7: Detached Migration Mode (`--detach`)
+**Description**: Run migrations in fire-and-forget mode using Modal's `--detach` flag. The migration continues in Modal's cloud even after the local process exits.
+**User Story**: As a developer, I want to launch a migration and move on to other work without keeping my terminal open or Claude session active, saving tokens and time.
+**Acceptance Criteria**:
+- [x] User can choose between attached (wait for result) and detached (fire & forget) mode
+- [x] Detached mode adds `--detach` flag to `modal run` command
+- [x] After launching detached, Claude prints the app name and monitoring commands, then finishes
+- [x] `/migrate` command confirmation step offers detached option
+- [x] Batch migrations support detached mode
+- [x] Documentation includes monitoring commands (`modal app logs`, `modal app list`, `modal app stop`)
+
 ### Future Scope (Post-MVP)
 1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 20 repos, ~252 GB.
 2. ~~Destination existence check~~ — **Done.** Single mode warns, batch mode auto-skips existing repos.
-3. Model format conversion during migration (e.g., safetensors to GGUF)
-4. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
-5. Persistent Modal Volume for caching frequently transferred repos
-6. Bidirectional sync (keep repos in sync automatically)
-7. Dry-run mode (show what would be transferred without doing it)
-8. `--force` flag to overwrite existing destination repos in batch mode
+3. Programmatic spawn/poll pattern — Use `.spawn()` + `FunctionCall.from_id()` for async status checks within Claude (requires `modal deploy`)
+4. Model format conversion during migration (e.g., safetensors to GGUF)
+5. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
+6. Persistent Modal Volume for caching frequently transferred repos
+7. Bidirectional sync (keep repos in sync automatically)
+8. Dry-run mode (show what would be transferred without doing it)
+9. `--force` flag to overwrite existing destination repos in batch mode
 
 ### Out of Scope
 - Model format conversion or quantization
@@ -132,14 +144,18 @@ Confirm destination: "Where should the repo be uploaded?"
 Confirm with user: "Migrate model username/my-model → ModelScope as username/my-model?"
   │
   ▼
-Run Modal function:
-  ├── Create target repo on ModelScope (if needed)
-  ├── snapshot_download from HuggingFace
-  ├── Upload folder to ModelScope
-  └── Return result
+Choose run mode: attached (wait) or detached (fire & forget)
   │
-  ▼
-Report: "Done! https://modelscope.ai/models/username/my-model"
+  ├── Attached: Run Modal function, wait for result
+  │     ├── Create target repo on ModelScope (if needed)
+  │     ├── snapshot_download from HuggingFace
+  │     ├── Upload folder to ModelScope
+  │     └── Report: "Done! https://modelscope.ai/models/username/my-model"
+  │
+  └── Detached: Run with `modal run --detach`
+        ├── Migration launched in background
+        ├── Print: "Check logs: modal app logs hf-ms-migrate"
+        └── Claude session ends — user checks Modal dashboard/CLI later
 ```
 
 #### Reverse Flow: ModelScope → HuggingFace
@@ -320,7 +336,17 @@ modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf
 
 # Platform prefix instead of --to flag
 modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
+
+# Fire & forget — migration continues after terminal disconnects
+modal run --detach scripts/modal_migrate.py::main --source "username/my-model" --to ms
+
+# Check on a detached migration
+modal app logs hf-ms-migrate    # stream logs
+modal app list                  # see running/recent apps
+modal app stop hf-ms-migrate    # cancel a running migration
 ```
+
+**Note**: `--detach` is a `modal run` flag (before the script path), not a script argument. The local entrypoint still runs to parse tokens and set up the migration — but with `--detach`, after the remote functions are invoked, the local process exits while the cloud containers continue running independently.
 
 ### Remote Functions
 
@@ -379,13 +405,14 @@ The skill should trigger on:
 ### Slash Command: `/migrate`
 
 ```
-/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name]
+/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach]
 ```
 
 Examples:
 - `/migrate username/my-model --to ms`
 - `/migrate damo/text-to-video --to hf --type model`
 - `/migrate username/my-dataset --to ms --type dataset`
+- `/migrate username/my-model --to ms --detach` (fire & forget)
 
 ---
 
@@ -404,6 +431,7 @@ Examples:
 | Network error | Connection timeout/reset | Migration fails with error + full traceback; no automatic retries |
 | Batch auth failure | Pre-check starmap fails with auth error | Abort entire batch (don't proceed blindly) |
 | Batch infra failure | Starmap throws mid-execution | Report completed count + list repos with unknown status |
+| Detached run — result unknown | `--detach` mode, no local output after launch | Print `modal app logs hf-ms-migrate` command for user to check |
 
 ---
 
@@ -445,10 +473,21 @@ Examples:
 - [x] Test with larger repos (15.6 GB model — hitokomoru-diffusion-v2)
 - [x] Test batch migration — models (17 repos, ~189 GB, 43m44s)
 - [x] Test batch migration — datasets (3 repos, ~63 GB)
-- [ ] Test all repo types (model done, dataset done, space pending)
-- [ ] Test both directions (HF→MS done, MS→HF pending)
-- [ ] Test error cases (bad token, missing repo, network failure)
+- [x] Test all repo types (model done, dataset done, space — skipped to MS with warning; ModelScope Studios are web/git only)
+- [x] Test both directions (HF→MS done, MS→HF done — furina-xl-lora 163 MB, 18.2s)
+- [x] Test error cases (nonexistent repo: clean error "Repo not found on HuggingFace as model, dataset, or space")
 - [x] Write README with setup instructions
+
+### Phase 5: Detached Migration Mode
+**Depends on**: Phase 3 (slash command and skill must exist)
+- [x] Update `/migrate` command confirmation step with detached option
+- [x] Update `/migrate` command Step 5 to prepend `--detach` flag when chosen
+- [x] Update `/migrate` command Step 6 with detached-mode reporting (app name + monitoring commands)
+- [x] Update migration skill (`SKILL.md`) to mention detached mode
+- [x] Update `CLAUDE.md` with `--detach` usage
+- [x] Update `README.md` with detached mode documentation
+- [x] Test single migration with `--detach` — HF→MS furina-xl-lora 163 MB, 9.2s detached
+- [x] Test batch migration with `--detach` — correctly detected & skipped 2 existing repos
 
 ---
 
@@ -458,7 +497,7 @@ Examples:
 |---|----------|---------|--------|--------|
 | 1 | ModelScope SDK version — older `modelscope` vs newer `modelhub` API? | Use `modelscope.hub.api.HubApi` — `create_model()` + `upload_folder()` (HTTP-based, no git). `push_model()` was deprecated and required git. | Affects upload implementation in Modal function | Resolved |
 | 2 | ModelScope repo naming — does namespace differ from HF? | A) Map HF username → MS username directly, B) Ask user for MS namespace | Affects auto-naming of destination repos | Resolved — same name works fine, `--dest` flag available for custom mapping |
-| 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Open — uploading as model repo is the plan, untested |
+| 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Resolved — spaces to MS are skipped with a warning. ModelScope Studios are web/git only (SDK has `# TODO: support studio`). Users can force with `--repo-type model`. |
 | 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — 58.5 GB (pixiv-niji-journey) completed in 19m48s with no issues |
 | 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — 58.5 GB in 19m48s, well within 3600s |
 

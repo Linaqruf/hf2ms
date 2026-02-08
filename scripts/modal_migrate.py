@@ -15,6 +15,9 @@ Usage:
 
     # Platform prefix instead of --to flag
     modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
+
+    # Fire & forget (detached — continues in cloud after local exit)
+    modal run --detach scripts/modal_migrate.py::main --source "username/my-model" --to ms
 """
 
 from __future__ import annotations
@@ -105,6 +108,76 @@ def _dir_stats(path: str) -> tuple[int, int]:
             except OSError:
                 file_count += 1  # count it but skip size
     return file_count, total_bytes
+
+
+def _sanitize_readme_for_hf(readme_path: str) -> None:
+    """Best-effort fix for README.md YAML front-matter that HuggingFace rejects.
+
+    ModelScope repos sometimes have license values (e.g. 'proprietary') that
+    are not in HuggingFace's allowed list, or use wrong casing (e.g.
+    'Apache-2.0' instead of 'apache-2.0'). This normalizes to lowercase and
+    rewrites invalid values to 'other' so upload_folder validation passes.
+
+    This is best-effort — failures are logged but never abort the migration.
+    """
+    import re
+
+    # From HuggingFace's validated license list (2025-01). HF requires exact
+    # lowercase match. "array" is an HF-internal value for multi-license repos.
+    HF_LICENSES = {
+        "apache-2.0", "mit", "openrail", "bigscience-openrail-m",
+        "creativeml-openrail-m", "bigscience-bloom-rail-1.0",
+        "bigcode-openrail-m", "afl-3.0", "artistic-2.0", "bsl-1.0", "bsd",
+        "bsd-2-clause", "bsd-3-clause", "bsd-3-clause-clear", "c-uda", "cc",
+        "cc0-1.0", "cc-by-2.0", "cc-by-2.5", "cc-by-3.0", "cc-by-4.0",
+        "cc-by-sa-3.0", "cc-by-sa-4.0", "cc-by-nc-2.0", "cc-by-nc-3.0",
+        "cc-by-nc-4.0", "cc-by-nd-4.0", "cc-by-nc-nd-3.0", "cc-by-nc-nd-4.0",
+        "cc-by-nc-sa-2.0", "cc-by-nc-sa-3.0", "cc-by-nc-sa-4.0",
+        "cdla-sharing-1.0", "cdla-permissive-1.0", "cdla-permissive-2.0",
+        "wtfpl", "ecl-2.0", "epl-1.0", "epl-2.0", "etalab-2.0", "eupl-1.1",
+        "eupl-1.2", "agpl-3.0", "gfdl", "gpl", "gpl-2.0", "gpl-3.0", "lgpl",
+        "lgpl-2.1", "lgpl-3.0", "isc", "lppl-1.3c", "ms-pl", "mpl-2.0",
+        "odc-by", "odbl", "openrail++", "osl-3.0", "postgresql", "ofl-1.1",
+        "ncsa", "unlicense", "zlib", "pddl", "lgpl-lr", "unknown", "other",
+        "array",
+    }
+
+    try:
+        with open(readme_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except OSError as e:
+        print(f"       WARNING: Could not read README.md for sanitization: {e}")
+        return
+
+    # Match YAML front-matter
+    m = re.match(r"^---\n(.*?\n)---\n", content, re.DOTALL)
+    if not m:
+        return
+
+    front = m.group(1)
+    license_match = re.search(r"^(license:\s*)(.+)$", front, re.MULTILINE)
+    if not license_match:
+        return
+
+    value = license_match.group(2).strip().strip("'\"")
+    normalized = value.lower()
+
+    if normalized in HF_LICENSES and value == normalized:
+        return  # already valid and correctly cased
+
+    # Determine replacement: normalize casing if valid, otherwise 'other'
+    replacement = normalized if normalized in HF_LICENSES else "other"
+    old_line = license_match.group(0)
+    new_line = f"{license_match.group(1)}{replacement}"
+    new_front = front.replace(old_line, new_line, 1)
+    content = "---\n" + new_front + "---\n" + content[m.end():]
+
+    try:
+        with open(readme_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"       Sanitized README.md: license '{value}' -> '{replacement}'")
+    except OSError as e:
+        print(f"       WARNING: Could not write sanitized README.md: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +451,9 @@ def migrate_ms_to_hf(
 ) -> dict:
     """Download repo from ModelScope and upload to HuggingFace.
 
+    Sanitizes README.md YAML front-matter (e.g., invalid license values)
+    for HuggingFace compatibility before uploading.
+
     Returns:
         Dict with status, url, file_count, total_size, and duration.
     """
@@ -397,9 +473,7 @@ def migrate_ms_to_hf(
 
     try:
         # Step 1: Download from ModelScope
-        # NOTE: repo_type is passed for datasets below. Only model downloads
-        # are well-tested for MS->HF direction.
-        print(f"[1/2] Downloading {ms_repo_id} ({repo_type}) from ModelScope...")
+        print(f"[1/3] Downloading {ms_repo_id} ({repo_type}) from ModelScope...")
         dl_start = _time.time()
         dl_kwargs = {"model_id": ms_repo_id, "cache_dir": work_dir}
         if repo_type == "dataset":
@@ -410,8 +484,14 @@ def migrate_ms_to_hf(
         file_count, total_bytes = _dir_stats(local_dir)
         print(f"       Downloaded {file_count} files ({_format_size(total_bytes)}) in {_format_duration(dl_time)}")
 
-        # Step 2: Upload to HuggingFace
-        print(f"[2/2] Uploading {file_count} files ({_format_size(total_bytes)}) to HuggingFace as {hf_repo_id}...")
+        # Step 2: Sanitize README.md metadata for HuggingFace compatibility
+        print(f"[2/3] Sanitizing metadata for HuggingFace compatibility...")
+        readme_path = os.path.join(local_dir, "README.md")
+        if os.path.exists(readme_path):
+            _sanitize_readme_for_hf(readme_path)
+
+        # Step 3: Upload to HuggingFace
+        print(f"[3/3] Uploading {file_count} files ({_format_size(total_bytes)}) to HuggingFace as {hf_repo_id}...")
         ul_start = _time.time()
         api = HfApi(token=hf_token)
         api.create_repo(repo_id=hf_repo_id, repo_type=repo_type, exist_ok=True)
@@ -511,10 +591,20 @@ def main(
             repo_type = detect_repo_type.remote(repo_id, src_plat, detect_token, ms_domain)
             print(f"  Detected: {repo_type}")
 
-        # 5. Determine destination repo ID
+        # 5. Reject spaces when destination is ModelScope
+        if repo_type == "space" and dst_plat == "ms":
+            print()
+            print("=" * 50)
+            print("  SKIPPED: ModelScope does not support Spaces (Studios).")
+            print("  ModelScope Studios can only be created via the web UI or git — the SDK has no support.")
+            print("  To migrate space files as a model repo, use --repo-type model.")
+            print("=" * 50)
+            return
+
+        # 6. Determine destination repo ID
         dest_repo_id = dest if dest else repo_id
 
-        # 6. Summary
+        # 7. Summary
         src_name = "HuggingFace" if src_plat == "hf" else "ModelScope"
         dst_name = "HuggingFace" if dst_plat == "hf" else "ModelScope"
         src_url = build_url(repo_id, src_plat, repo_type)
@@ -529,14 +619,14 @@ def main(
         print("-" * 50)
         print()
 
-        # 7. Check if destination repo already exists
+        # 8. Check if destination repo already exists
         dest_token = ms_token if dst_plat == "ms" else hf_token
         dest_exists = check_repo_exists.remote(dest_repo_id, dst_plat, repo_type, dest_token, ms_domain)
         if dest_exists:
             print(f"  NOTE: {dest_repo_id} already exists on {dst_name}. Files will be updated/overwritten.")
             print()
 
-        # 8. Run migration
+        # 9. Run migration
         start = time.time()
         print("Starting migration...")
         print()
@@ -563,7 +653,7 @@ def main(
             print(f"ERROR: Unsupported direction {src_plat} -> {dst_plat}")
             return
 
-        # 9. Report
+        # 10. Report
         print()
         print("=" * 50)
         if result["status"] == "success":
@@ -656,6 +746,16 @@ def batch(
             to_flag = to if to else None
             src_plat, dst_plat = detect_direction(source_platform, to_flag)
             jobs.append((repo_id, src_plat, dst_plat))
+
+        # Reject spaces when destination is ModelScope
+        if repo_type == "space" and any(dst == "ms" for _, _, dst in jobs):
+            print()
+            print("=" * 60)
+            print("  SKIPPED: ModelScope does not support Spaces (Studios).")
+            print("  ModelScope Studios can only be created via the web UI or git — the SDK has no support.")
+            print("  To migrate space files as model repos, use --repo-type model.")
+            print("=" * 60)
+            return
 
         # Print plan
         print()

@@ -117,6 +117,6 @@ The `/migrate` command handles direction inference from natural language (e.g., 
 
 ## SDK Reference
 
-For HuggingFace and ModelScope Python SDK methods (list, info, create, download, upload, files, branches, and key differences between platforms), see:
+Before searching the web for HuggingFace or ModelScope SDK methods, read the bundled reference file. It contains complete Python SDK signatures for both platforms (list, info, create, download, upload, files, branches) and a key differences table.
 
-`${CLAUDE_PLUGIN_ROOT}/skills/migrate/references/hub-api-reference.md`
+**Read first**: `${CLAUDE_PLUGIN_ROOT}/skills/migrate/references/hub-api-reference.md`

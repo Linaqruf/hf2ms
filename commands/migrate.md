@@ -49,6 +49,8 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; python "${CLA
 
 If any tokens are missing or invalid, show the user the output and stop. Do NOT proceed without valid tokens.
 
+**Important:** Note the authenticated HuggingFace username from the output (e.g., "Authenticated as: Linaqruf"). When the destination is HuggingFace, use this exact username (case-sensitive) as the default destination namespace — do NOT assume the source repo's namespace matches the HF account.
+
 ### Step 2: Determine Direction
 
 If the direction cannot be determined from the arguments (no `--to` flag, no platform prefix), ask:

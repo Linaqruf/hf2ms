@@ -97,12 +97,12 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 **Description**: Run migrations in fire-and-forget mode using Modal's `--detach` flag. The migration continues in Modal's cloud even after the local process exits.
 **User Story**: As a developer, I want to launch a migration and move on to other work without keeping my terminal open or Claude session active, saving tokens and time.
 **Acceptance Criteria**:
-- [ ] User can choose between attached (wait for result) and detached (fire & forget) mode
-- [ ] Detached mode adds `--detach` flag to `modal run` command
-- [ ] After launching detached, Claude prints the app name and monitoring commands, then finishes
-- [ ] `/migrate` command confirmation step offers detached option
-- [ ] Batch migrations support detached mode
-- [ ] Documentation includes monitoring commands (`modal app logs`, `modal app list`, `modal app stop`)
+- [x] User can choose between attached (wait for result) and detached (fire & forget) mode
+- [x] Detached mode adds `--detach` flag to `modal run` command
+- [x] After launching detached, Claude prints the app name and monitoring commands, then finishes
+- [x] `/migrate` command confirmation step offers detached option
+- [x] Batch migrations support detached mode
+- [x] Documentation includes monitoring commands (`modal app logs`, `modal app list`, `modal app stop`)
 
 ### Future Scope (Post-MVP)
 1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 20 repos, ~252 GB.
@@ -334,6 +334,9 @@ modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --
 # ModelScope → HuggingFace
 modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf
 
+# Platform prefix instead of --to flag
+modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
+
 # Fire & forget — migration continues after terminal disconnects
 modal run --detach scripts/modal_migrate.py::main --source "username/my-model" --to ms
 
@@ -343,7 +346,7 @@ modal app list                  # see running/recent apps
 modal app stop hf-ms-migrate    # cancel a running migration
 ```
 
-**Note**: `--detach` is a `modal run` flag (before the script path), not a script argument. The local entrypoint still runs to parse tokens and set up the migration — but once the remote functions are called, the local process can disconnect without killing the cloud containers.
+**Note**: `--detach` is a `modal run` flag (before the script path), not a script argument. The local entrypoint still runs to parse tokens and set up the migration — but with `--detach`, after the remote functions are invoked, the local process exits while the cloud containers continue running independently.
 
 ### Remote Functions
 

@@ -90,17 +90,7 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCOD
 
 ### Detached Mode (Fire & Forget)
 
-Add `--detach` between `modal run` and the script path to run in background mode. The migration continues in Modal's cloud even if the local process or Claude session exits. Both single and batch entrypoints support detach.
-
-After launching detached, monitor with:
-
-```bash
-modal app logs hf-ms-migrate      # stream logs (app name from modal_migrate.py)
-modal app list                    # see running/recent apps
-modal app stop hf-ms-migrate     # cancel if needed
-```
-
-Or visit the Modal web dashboard: https://modal.com/apps
+Add `--detach` before the script path to run in fire-and-forget mode. The migration continues in Modal's cloud after the session ends. Monitor with `modal app logs hf-ms-migrate` (app name defined in `modal_migrate.py`) or the [Modal dashboard](https://modal.com/apps). Both single and batch entrypoints support detach.
 
 The `/migrate` command infers direction from natural language (e.g., "to ModelScope" becomes `--to ms`) and extracts repo IDs from URLs automatically. Pass bare `namespace/name` format to the script, not full URLs.
 

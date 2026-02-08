@@ -121,7 +121,7 @@ Record whether the user chose detached mode — this affects Step 5 (command) an
 
 ### Step 5: Run Migration
 
-Load `.env` and execute the Modal migration command. Always use `::main` entrypoint and set `PYTHONIOENCODING=utf-8` (prevents Unicode errors from Modal CLI on Windows).
+Load `.env` and execute the Modal migration command. Set `PYTHONIOENCODING=utf-8` (prevents Unicode errors from Modal CLI on Windows). This command handles single-repo migrations via `::main`. For batch migrations, use the CLI directly (see SKILL.md).
 
 **Attached mode** (default):
 
@@ -137,10 +137,9 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCOD
 
 Build the command from the parsed arguments:
 - Always include `--source` and `--to`
-- Always use `::main` entrypoint (not bare `modal_migrate.py`)
+- Use `::main` entrypoint for single-repo migrations (not bare `modal_migrate.py`)
 - Include `--repo-type` only if the user specified it (otherwise let it auto-detect)
 - Always include `--dest` with the confirmed destination from Step 3
-- If detached mode: add `--detach` between `modal run` and the script path (it is a `modal run` flag, not a script argument)
 
 ### Step 6: Report Result
 
@@ -169,7 +168,7 @@ After the `modal run --detach` command returns (which happens quickly after the 
 Migration launched in detached mode (fire & forget).
 The migration is running in Modal's cloud and will continue even if this session ends.
 
-Monitor your migration:
+Monitor your migration (app name "hf-ms-migrate" from scripts/modal_migrate.py):
   modal app logs hf-ms-migrate      # stream logs in real-time
   modal app list                    # see running/recent apps
   modal app stop hf-ms-migrate     # cancel if needed

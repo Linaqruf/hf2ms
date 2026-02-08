@@ -8,6 +8,29 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+
+
+def load_dotenv() -> None:
+    """Load .env file from plugin root into os.environ (without overwriting existing vars)."""
+    # Try plugin root first, then script's parent directory
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
+    candidates = [
+        Path(plugin_root) / ".env" if plugin_root else None,
+        Path(__file__).resolve().parent.parent / ".env",
+    ]
+    for env_path in candidates:
+        if env_path and env_path.is_file():
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key, value = key.strip(), value.strip()
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+            break
 
 
 def check_env(name: str) -> str | None:
@@ -62,6 +85,7 @@ def validate_modal_tokens(token_id: str | None, token_secret: str | None) -> tup
 
 def main() -> int:
     """Run all token validations and print results."""
+    load_dotenv()
     print("=" * 60)
     print("HF-Modal-ModelScope Token Validation")
     print("=" * 60)

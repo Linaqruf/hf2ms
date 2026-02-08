@@ -54,7 +54,7 @@ Three sets of credentials must be available as environment variables:
 | `MODELSCOPE_TOKEN` | ModelScope | https://modelscope.ai/my/myaccesstoken |
 | `MODELSCOPE_DOMAIN` | ModelScope (optional) | Defaults to `modelscope.cn`. Set to `modelscope.ai` for international site. |
 
-Ensure `huggingface_hub` and `modelscope` are pip-installed locally for token validation. The migration itself runs entirely on Modal (no local installs needed for that).
+Tokens can be set in the shell or placed in `${CLAUDE_PLUGIN_ROOT}/.env` — the validation script and `/migrate` command auto-load this file. Ensure `huggingface_hub` and `modelscope` are pip-installed locally for token validation. The migration itself runs entirely on Modal (no local installs needed for that).
 
 ## Executing a Migration
 

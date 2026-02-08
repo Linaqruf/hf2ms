@@ -41,10 +41,10 @@ Follow these steps in order:
 
 ### Step 1: Validate Tokens
 
-Run the token validation script:
+Load environment variables from `.env` (if present), then run the token validation script:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/validate_tokens.py"
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; python "${CLAUDE_PLUGIN_ROOT}/scripts/validate_tokens.py"
 ```
 
 If any tokens are missing or invalid, show the user the output and stop. Do NOT proceed without valid tokens.

@@ -107,6 +107,56 @@ def _dir_stats(path: str) -> tuple[int, int]:
     return file_count, total_bytes
 
 
+def _sanitize_readme_for_hf(readme_path: str) -> None:
+    """Fix README.md YAML front-matter that HuggingFace rejects.
+
+    ModelScope repos sometimes have license values (e.g. 'AFL') that are not
+    in HuggingFace's allowed list.  This rewrites invalid license values to
+    'other' so upload_folder validation passes.
+    """
+    import re
+
+    HF_LICENSES = {
+        "apache-2.0", "mit", "openrail", "bigscience-openrail-m",
+        "creativeml-openrail-m", "bigscience-bloom-rail-1.0",
+        "bigcode-openrail-m", "afl-3.0", "artistic-2.0", "bsl-1.0", "bsd",
+        "bsd-2-clause", "bsd-3-clause", "bsd-3-clause-clear", "c-uda", "cc",
+        "cc0-1.0", "cc-by-2.0", "cc-by-2.5", "cc-by-3.0", "cc-by-4.0",
+        "cc-by-sa-3.0", "cc-by-sa-4.0", "cc-by-nc-2.0", "cc-by-nc-3.0",
+        "cc-by-nc-4.0", "cc-by-nd-4.0", "cc-by-nc-nd-3.0", "cc-by-nc-nd-4.0",
+        "cc-by-nc-sa-2.0", "cc-by-nc-sa-3.0", "cc-by-nc-sa-4.0",
+        "cdla-sharing-1.0", "cdla-permissive-1.0", "cdla-permissive-2.0",
+        "wtfpl", "ecl-2.0", "epl-1.0", "epl-2.0", "etalab-2.0", "eupl-1.1",
+        "eupl-1.2", "agpl-3.0", "gfdl", "gpl", "gpl-2.0", "gpl-3.0", "lgpl",
+        "lgpl-2.1", "lgpl-3.0", "isc", "lppl-1.3c", "ms-pl", "mpl-2.0",
+        "odc-by", "odbl", "openrail++", "osl-3.0", "postgresql", "ofl-1.1",
+        "ncsa", "unlicense", "zlib", "pddl", "lgpl-lr", "unknown", "other",
+        "array",
+    }
+
+    with open(readme_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Match YAML front-matter
+    m = re.match(r"^---\n(.*?\n)---\n", content, re.DOTALL)
+    if not m:
+        return
+
+    front = m.group(1)
+    license_match = re.search(r"^(license:\s*)(.+)$", front, re.MULTILINE)
+    if not license_match:
+        return
+
+    value = license_match.group(2).strip().strip("'\"")
+    if value.lower() not in HF_LICENSES:
+        old_line = license_match.group(0)
+        new_line = f"{license_match.group(1)}other"
+        content = content.replace(old_line, new_line, 1)
+        with open(readme_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"       Sanitized README.md: license '{value}' -> 'other'")
+
+
 # ---------------------------------------------------------------------------
 # Remote functions (run inside Modal container)
 # ---------------------------------------------------------------------------
@@ -409,6 +459,11 @@ def migrate_ms_to_hf(
 
         file_count, total_bytes = _dir_stats(local_dir)
         print(f"       Downloaded {file_count} files ({_format_size(total_bytes)}) in {_format_duration(dl_time)}")
+
+        # Sanitize README.md metadata for HuggingFace compatibility
+        readme_path = os.path.join(local_dir, "README.md")
+        if os.path.exists(readme_path):
+            _sanitize_readme_for_hf(readme_path)
 
         # Step 2: Upload to HuggingFace
         print(f"[2/2] Uploading {file_count} files ({_format_size(total_bytes)}) to HuggingFace as {hf_repo_id}...")

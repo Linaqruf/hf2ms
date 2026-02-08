@@ -93,15 +93,27 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Batch mode: skips existing repos automatically
 - [x] Checks run in parallel for batch operations
 
+#### Feature 7: Detached Migration Mode (`--detach`)
+**Description**: Run migrations in fire-and-forget mode using Modal's `--detach` flag. The migration continues in Modal's cloud even after the local process exits.
+**User Story**: As a developer, I want to launch a migration and move on to other work without keeping my terminal open or Claude session active, saving tokens and time.
+**Acceptance Criteria**:
+- [ ] User can choose between attached (wait for result) and detached (fire & forget) mode
+- [ ] Detached mode adds `--detach` flag to `modal run` command
+- [ ] After launching detached, Claude prints the app name and monitoring commands, then finishes
+- [ ] `/migrate` command confirmation step offers detached option
+- [ ] Batch migrations support detached mode
+- [ ] Documentation includes monitoring commands (`modal app logs`, `modal app list`, `modal app stop`)
+
 ### Future Scope (Post-MVP)
 1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 20 repos, ~252 GB.
 2. ~~Destination existence check~~ — **Done.** Single mode warns, batch mode auto-skips existing repos.
-3. Model format conversion during migration (e.g., safetensors to GGUF)
-4. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
-5. Persistent Modal Volume for caching frequently transferred repos
-6. Bidirectional sync (keep repos in sync automatically)
-7. Dry-run mode (show what would be transferred without doing it)
-8. `--force` flag to overwrite existing destination repos in batch mode
+3. Programmatic spawn/poll pattern — Use `.spawn()` + `FunctionCall.from_id()` for async status checks within Claude (requires `modal deploy`)
+4. Model format conversion during migration (e.g., safetensors to GGUF)
+5. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
+6. Persistent Modal Volume for caching frequently transferred repos
+7. Bidirectional sync (keep repos in sync automatically)
+8. Dry-run mode (show what would be transferred without doing it)
+9. `--force` flag to overwrite existing destination repos in batch mode
 
 ### Out of Scope
 - Model format conversion or quantization
@@ -132,14 +144,18 @@ Confirm destination: "Where should the repo be uploaded?"
 Confirm with user: "Migrate model username/my-model → ModelScope as username/my-model?"
   │
   ▼
-Run Modal function:
-  ├── Create target repo on ModelScope (if needed)
-  ├── snapshot_download from HuggingFace
-  ├── Upload folder to ModelScope
-  └── Return result
+Choose run mode: attached (wait) or detached (fire & forget)
   │
-  ▼
-Report: "Done! https://modelscope.ai/models/username/my-model"
+  ├── Attached: Run Modal function, wait for result
+  │     ├── Create target repo on ModelScope (if needed)
+  │     ├── snapshot_download from HuggingFace
+  │     ├── Upload folder to ModelScope
+  │     └── Report: "Done! https://modelscope.ai/models/username/my-model"
+  │
+  └── Detached: Run with `modal run --detach`
+        ├── Migration launched in background
+        ├── Print: "Check logs: modal app logs hf-ms-migrate"
+        └── Claude session ends — user checks Modal dashboard/CLI later
 ```
 
 #### Reverse Flow: ModelScope → HuggingFace
@@ -318,9 +334,16 @@ modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --
 # ModelScope → HuggingFace
 modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf
 
-# Platform prefix instead of --to flag
-modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
+# Fire & forget — migration continues after terminal disconnects
+modal run --detach scripts/modal_migrate.py::main --source "username/my-model" --to ms
+
+# Check on a detached migration
+modal app logs hf-ms-migrate    # stream logs
+modal app list                  # see running/recent apps
+modal app stop hf-ms-migrate    # cancel a running migration
 ```
+
+**Note**: `--detach` is a `modal run` flag (before the script path), not a script argument. The local entrypoint still runs to parse tokens and set up the migration — but once the remote functions are called, the local process can disconnect without killing the cloud containers.
 
 ### Remote Functions
 
@@ -379,13 +402,14 @@ The skill should trigger on:
 ### Slash Command: `/migrate`
 
 ```
-/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name]
+/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach]
 ```
 
 Examples:
 - `/migrate username/my-model --to ms`
 - `/migrate damo/text-to-video --to hf --type model`
 - `/migrate username/my-dataset --to ms --type dataset`
+- `/migrate username/my-model --to ms --detach` (fire & forget)
 
 ---
 
@@ -404,6 +428,7 @@ Examples:
 | Network error | Connection timeout/reset | Migration fails with error + full traceback; no automatic retries |
 | Batch auth failure | Pre-check starmap fails with auth error | Abort entire batch (don't proceed blindly) |
 | Batch infra failure | Starmap throws mid-execution | Report completed count + list repos with unknown status |
+| Detached run — result unknown | `--detach` mode, no local output after launch | Print `modal app logs hf-ms-migrate` command for user to check |
 
 ---
 
@@ -449,6 +474,17 @@ Examples:
 - [ ] Test both directions (HF→MS done, MS→HF pending)
 - [ ] Test error cases (bad token, missing repo, network failure)
 - [x] Write README with setup instructions
+
+### Phase 5: Detached Migration Mode
+**Depends on**: Phase 3 (slash command and skill must exist)
+- [x] Update `/migrate` command confirmation step with detached option
+- [x] Update `/migrate` command Step 5 to prepend `--detach` flag when chosen
+- [x] Update `/migrate` command Step 6 with detached-mode reporting (app name + monitoring commands)
+- [x] Update migration skill (`SKILL.md`) to mention detached mode
+- [x] Update `CLAUDE.md` with `--detach` usage
+- [x] Update `README.md` with detached mode documentation
+- [ ] Test single migration with `--detach` (verify logs via `modal app logs`)
+- [ ] Test batch migration with `--detach`
 
 ---
 

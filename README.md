@@ -123,6 +123,33 @@ modal run scripts/modal_migrate.py::batch \
 
 Each repo gets its own container and runs in parallel via Modal's `starmap()`. Repos that already exist on the destination are automatically skipped.
 
+### Detached Mode (Fire & Forget)
+
+Add `--detach` to run migrations in the background. The migration continues in Modal's cloud even if you close your terminal or end your Claude session:
+
+```bash
+# Single repo — detached
+modal run --detach scripts/modal_migrate.py::main \
+  --source "username/my-model" --to ms
+
+# Batch — detached
+modal run --detach scripts/modal_migrate.py::batch \
+  --source "user/model1,user/model2,user/model3" \
+  --to ms --repo-type model
+```
+
+Monitor your detached migration:
+
+```bash
+modal app logs hf-ms-migrate      # stream logs in real-time
+modal app list                    # see running/recent apps
+modal app stop hf-ms-migrate     # cancel a running migration
+```
+
+Or visit the [Modal dashboard](https://modal.com/apps) in your browser.
+
+> **Tip**: The `/migrate` command in Claude Code offers detached mode as a confirmation option — choose "Yes, detached" to fire & forget and free up your session.
+
 ### Options (Single)
 
 | Flag | Description | Required |

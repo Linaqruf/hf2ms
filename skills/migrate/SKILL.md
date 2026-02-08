@@ -10,7 +10,8 @@ description: >-
   "sync repo between HuggingFace and ModelScope", "move this to modelscope",
   "put this on huggingface", "copy from ModelScope to HuggingFace",
   "batch migrate", "migrate multiple repos",
-  "migrate all my models", "bulk transfer", or "parallel migration".
+  "migrate all my models", "bulk transfer", "parallel migration",
+  "migrate in background", "detached migration", or "fire and forget".
 ---
 
 # HF-Modal-ModelScope Migration
@@ -71,6 +72,9 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCOD
 
 # Batch (parallel containers, one per repo)
 set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::batch" --source "user/model1,user/model2,user/model3" --to ms --repo-type model
+
+# Detached (fire & forget — migration continues after session ends)
+set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run --detach "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms
 ```
 
 ### Single vs Batch
@@ -83,6 +87,20 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCOD
 | Type detection | Per-repo auto-detect | Applied uniformly |
 | Parallelism | One container | One container per repo via `starmap()` |
 | Existing repos | Warns, proceeds | Auto-skips |
+
+### Detached Mode (Fire & Forget)
+
+Add `--detach` between `modal run` and the script path to run in background mode. The migration continues in Modal's cloud even if the local process or Claude session exits. Both single and batch entrypoints support detach.
+
+After launching detached, monitor with:
+
+```bash
+modal app logs hf-ms-migrate      # stream logs in real-time
+modal app list                    # see running/recent apps
+modal app stop hf-ms-migrate     # cancel if needed
+```
+
+Or visit the Modal web dashboard: https://modal.com/apps
 
 The `/migrate` command handles direction inference from natural language (e.g., "to ModelScope" -> `--to ms`) and URL-to-repo-ID extraction automatically. The script expects bare `namespace/name` format, not full URLs.
 

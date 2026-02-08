@@ -1,9 +1,9 @@
 ---
 name: migrate
-version: 1.2.0
+version: 1.3.0
 description: >-
   This skill should be used when the user wants to migrate, transfer, push, copy,
-  or mirror repos between HuggingFace and ModelScope. Triggers on "migrate model",
+  clone, or mirror repos between HuggingFace and ModelScope. Triggers on "migrate model",
   "transfer to ModelScope", "push to HuggingFace", "copy from HF to MS",
   "mirror model", "move dataset to ModelScope", "migrate space",
   "upload to ModelScope", "download from ModelScope",
@@ -28,7 +28,7 @@ Local Machine              Modal Container              Platforms
 └──────────┘             └─────────────────┘          └──────────┘
 ```
 
-Modal containers are ephemeral — each migration spins up a fresh container, transfers files via platform SDKs, then the container is destroyed. No persistent storage.
+Each migration spins up a fresh Modal container, transfers files via platform SDKs, then destroys the container. Expect no persistent storage between runs.
 
 ## Supported Directions
 
@@ -55,7 +55,7 @@ Three sets of credentials must be available as environment variables:
 | `MODELSCOPE_TOKEN` | ModelScope | https://modelscope.ai/my/myaccesstoken |
 | `MODELSCOPE_DOMAIN` | ModelScope (optional) | Defaults to `modelscope.cn`. Set to `modelscope.ai` for international site. |
 
-Tokens can be set in the shell or placed in `${CLAUDE_PLUGIN_ROOT}/.env` — the validation script and `/migrate` command auto-load this file. Ensure `huggingface_hub` and `modelscope` are pip-installed locally for token validation. The migration itself runs entirely on Modal (no local installs needed for that).
+Set tokens in the shell or place them in `${CLAUDE_PLUGIN_ROOT}/.env` — the validation script and `/migrate` command auto-load this file. Install `huggingface_hub` and `modelscope` locally for token validation. The migration itself runs entirely on Modal (no local installs needed for that).
 
 ## Executing a Migration
 
@@ -95,14 +95,14 @@ Add `--detach` between `modal run` and the script path to run in background mode
 After launching detached, monitor with:
 
 ```bash
-modal app logs hf-ms-migrate      # stream logs in real-time
+modal app logs hf-ms-migrate      # stream logs (app name from modal_migrate.py)
 modal app list                    # see running/recent apps
 modal app stop hf-ms-migrate     # cancel if needed
 ```
 
 Or visit the Modal web dashboard: https://modal.com/apps
 
-The `/migrate` command handles direction inference from natural language (e.g., "to ModelScope" -> `--to ms`) and URL-to-repo-ID extraction automatically. The script expects bare `namespace/name` format, not full URLs.
+The `/migrate` command infers direction from natural language (e.g., "to ModelScope" becomes `--to ms`) and extracts repo IDs from URLs automatically. Pass bare `namespace/name` format to the script, not full URLs.
 
 ## Edge Cases
 

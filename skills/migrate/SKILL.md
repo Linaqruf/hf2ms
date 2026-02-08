@@ -238,3 +238,9 @@ The batch entrypoint prints a summary with success/fail counts. Report:
 | `${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py` | Modal app with migration functions | `modal run ...` |
 | `${CLAUDE_PLUGIN_ROOT}/scripts/validate_tokens.py` | Check all platform tokens | `python ...` |
 | `${CLAUDE_PLUGIN_ROOT}/scripts/utils.py` | Shared helpers (imported by other scripts) | N/A (library) |
+
+## SDK Reference
+
+For HuggingFace and ModelScope Python SDK methods (list, info, create, download, upload, files, branches, and key differences between platforms), see:
+
+`${CLAUDE_PLUGIN_ROOT}/skills/migrate/references/hub-api-reference.md`

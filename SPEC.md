@@ -25,10 +25,14 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Batch migrate multiple repos in parallel (17 models + 3 datasets = 20 repos migrated)
 
 > **Test results**:
-> - Single model: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s
+> - Single model HF→MS: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s
+> - Single model MS→HF: furina-xl-lora — 163 MB, 18.2s (detached)
+> - Single model HF→MS detached: furina-xl-lora — 163 MB, 9.2s
 > - Single dataset: proseka-card-list — 7 files, 2.2 GB, 14m11s
 > - Batch models: 17 models, ~189 GB, 43m44s (parallel containers)
 > - Batch datasets: pixiv-niji-journey — 16 files, 58.5 GB, 19m48s; bandori-card-dataset — 3 files, 2.3 GB (migrated separately)
+> - Space migration: skipped to MS with warning (ModelScope Studios are web/git only)
+> - Error cases: nonexistent repo gives clean error; all token validations pass
 
 ---
 
@@ -510,6 +514,15 @@ Examples:
 - [huggingface_hub — Download & Upload](https://huggingface.co/docs/huggingface_hub/guides/download)
 - [ModelScope Hub API](https://modelscope.ai/docs)
 - [Claude Code Plugin Structure](https://docs.anthropic.com/en/docs/claude-code/plugins)
+
+---
+
+## Project Status
+
+**All phases complete.** All features implemented, tested, and documented. All open questions resolved. All acceptance criteria met.
+
+- PR #1: Fix error handling, input validation, doc accuracy from codebase review
+- PR #2: Add detached mode, README license sanitizer, space rejection, batch space guard, all tests pass
 
 ---
 

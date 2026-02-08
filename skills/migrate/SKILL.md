@@ -223,13 +223,11 @@ The batch entrypoint prints a summary with success/fail counts. Report:
 
 ## Edge Cases
 
-- **Repo already exists on destination**: Migration proceeds — files are updated/overwritten.
+- **Repo already exists on destination**: In single mode, migration proceeds with a warning (files are updated/overwritten). In batch mode, existing repos are automatically skipped.
 - **Private source repo**: Works if the source token has read access.
 - **Spaces to ModelScope**: Space files are uploaded as a model repo (ModelScope has no Spaces equivalent).
 - **Large repos (>10GB)**: May take a while. The Modal function has a 3600s (1 hour) timeout.
-- **User provides full URL instead of repo ID**: Extract the `namespace/name` part. Examples:
-  - `https://huggingface.co/Linaqruf/model` -> `Linaqruf/model` (platform: hf)
-  - `https://modelscope.cn/models/damo/model` -> `damo/model` (platform: ms)
+- **User provides full URL instead of repo ID**: The script requires bare `namespace/name` format. Extract the repo ID from the URL before passing it to the script (e.g., `https://huggingface.co/Linaqruf/model` -> `Linaqruf/model`).
 
 ## Scripts Reference
 

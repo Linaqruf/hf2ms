@@ -138,7 +138,7 @@ Each repo gets its own container and runs in parallel via Modal's `starmap()`. R
 |------|-------------|----------|
 | `--source` | Comma-separated repo IDs | Yes |
 | `--to` | Destination platform: `hf` or `ms` | Yes |
-| `--repo-type` | `model`, `dataset`, or `space` (applied to all repos) | Yes |
+| `--repo-type` | `model`, `dataset`, or `space` (applied to all repos) | No (default: model) |
 
 ## Supported Repo Types
 

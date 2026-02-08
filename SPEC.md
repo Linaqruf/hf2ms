@@ -225,19 +225,19 @@ Same flow, reversed source/destination SDKs
 **Steps**:
 1. Parse source repo ID and direction from user input
 2. If repo type not specified, detect via HF API (`model_info` / `dataset_info`) or ModelScope API
-3. Validate all required tokens exist and are valid (API call to each platform's `/whoami` or equivalent)
+3. Check that all required token environment variables (`HF_TOKEN`, `MODELSCOPE_TOKEN`) are set and non-empty
 4. Determine destination repo ID (default: same name under user's namespace)
-5. Create destination repo if it doesn't exist (`create_repo` with `exist_ok=True`)
+5. Create destination repo if it doesn't exist (HF: `create_repo` with `exist_ok=True`; MS: `repo_exists()` then `create_model()`/`create_dataset()`)
 6. Invoke Modal function with: source_id, dest_id, direction, repo_type, tokens
 7. Modal function: `snapshot_download` from source → `/tmp/repo` → `upload_folder` to destination
 8. Return destination URL
 
 **Edge cases**:
-- Source repo doesn't exist → fail with "Repo not found" before invoking Modal
+- Source repo doesn't exist → if auto-detecting type, `detect_repo_type` raises error on Modal container; if type is explicit, fails during `snapshot_download`
 - Destination repo already exists → single mode warns and proceeds (updates files); batch mode skips existing repos
 - Large repo (>50GB) → warn user about potential timeout, suggest `allow_patterns` filter in future
 - Private source repo → works if token has read access
-- Rate limit hit → Modal function retries with backoff (3 attempts max)
+- Rate limit hit → migration fails with error message; no automatic retries
 
 ---
 
@@ -277,7 +277,7 @@ hf2ms/
 │   ├── validate_tokens.py      # Token validation utility
 │   └── utils.py                # Shared helpers (repo ID parsing, etc.)
 │
-└── README.md                   # Setup instructions (optional, for friend)
+└── README.md                   # User-facing documentation (setup, usage, troubleshooting)
 ```
 
 ---
@@ -322,10 +322,10 @@ modal run scripts/modal_migrate.py --source "hf:Linaqruf/model" --to ms
 
 Five Modal functions run in the cloud container:
 - `hello_world` — smoke test (60s timeout)
-- `check_repo_exists` — check if a repo exists on HF or MS (120s timeout, used for skip/warn logic)
-- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout)
-- `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`)
-- `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`)
+- `check_repo_exists` — check if a repo exists on HF or MS (120s timeout); catches only `RepositoryNotFoundError` for HF, lets other errors propagate
+- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout); catches only 404s, surfaces auth/network errors; MS now checks both model and dataset
+- `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`); includes full traceback on error
+- `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`); passes `repo_type` to MS download
 
 **Important**: Utils imports (`from utils import ...`) must be lazy (inside `main()`) because Modal only auto-mounts the entrypoint file. The remote functions don't use utils.
 
@@ -391,7 +391,7 @@ Examples:
 | Download timeout | Modal function times out (>3600s) | Print "Repo too large for single transfer" + suggest filtering |
 | Upload failure mid-transfer | API error during upload | Print error + note partial upload may exist on destination |
 | Modal cold start fails | Modal container build fails | Print error + suggest checking Modal account/quota |
-| Network error | Connection timeout/reset | Retry up to 3 times with exponential backoff |
+| Network error | Connection timeout/reset | Migration fails with error; no automatic retries |
 
 ---
 

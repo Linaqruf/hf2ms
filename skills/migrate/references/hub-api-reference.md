@@ -317,7 +317,8 @@ api.upload_folder(
     token=None,
 )
 # IMPORTANT: HTTP-based, no git required
-# GOTCHA: Fails with "file already exists" if uploading identical files to existing repo
+# GOTCHA: May fail with "file already exists" during commit if uploading identical files.
+# Use check_repo_exists to skip repos that are already fully migrated.
 
 # Upload single file
 api.upload_file(

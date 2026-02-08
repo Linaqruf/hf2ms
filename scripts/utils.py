@@ -69,7 +69,7 @@ def parse_repo_id(user_input: str) -> tuple[str, str | None]:
             break
 
     # Validate repo_id format: namespace/name
-    if not re.match(r"^[\w.-]+/[\w.-]+$", user_input):
+    if not re.match(r"^[\w.~-]+/[\w.~-]+$", user_input):
         raise ValueError(
             f"Invalid repo ID: '{user_input}'. Expected format: 'username/repo-name'"
         )
@@ -85,7 +85,19 @@ def detect_direction(source_platform: str | None, to_flag: str | None) -> tuple[
     """
     if to_flag:
         to_flag = to_flag.lower().strip()
-        dest = "ms" if to_flag in ("ms", "modelscope") else "hf"
+        valid_ms = ("ms", "modelscope")
+        valid_hf = ("hf", "huggingface")
+        if to_flag in valid_ms:
+            dest = "ms"
+        elif to_flag in valid_hf:
+            dest = "hf"
+        else:
+            raise ValueError(f"Invalid --to value: '{to_flag}'. Must be one of: hf, huggingface, ms, modelscope")
+        # When source_platform is explicit, use it; otherwise infer as opposite
+        if source_platform:
+            if source_platform == dest:
+                raise ValueError(f"Source platform '{source_platform}' and destination '{dest}' are the same")
+            return source_platform, dest
         source = "hf" if dest == "ms" else "ms"
         return source, dest
 

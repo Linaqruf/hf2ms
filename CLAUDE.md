@@ -24,7 +24,7 @@ Primary spec: `SPEC.md`
 ## Commands
 
 - `modal run scripts/modal_migrate.py --source <repo> --to <hf|ms>` — Single migration
-- `modal run scripts/modal_migrate.py::batch --source <csv> --to <hf|ms> --repo-type <type>` — Batch (parallel)
+- `modal run scripts/modal_migrate.py::batch --source "repo1,repo2,repo3" --to <hf|ms> --repo-type <type>` — Batch (parallel)
 - `modal run scripts/modal_migrate.py::hello_world` — Smoke test Modal setup
 - `python scripts/validate_tokens.py` — Validate all platform tokens
 - `/migrate` — Claude Code slash command for guided migration

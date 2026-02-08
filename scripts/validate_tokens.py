@@ -25,6 +25,8 @@ def validate_hf_token(token: str) -> tuple[bool, str]:
         return True, f"Authenticated as: {info.get('name', 'unknown')}"
     except ImportError:
         return False, "huggingface_hub not installed"
+    except (ConnectionError, TimeoutError, OSError) as e:
+        return False, f"Could not reach HuggingFace API (network issue?): {e}"
     except Exception as e:
         return False, f"Invalid token: {e}"
 
@@ -40,6 +42,8 @@ def validate_modelscope_token(token: str) -> tuple[bool, str]:
         return True, f"Login successful (domain: {domain})"
     except ImportError:
         return False, "modelscope not installed"
+    except (ConnectionError, TimeoutError, OSError) as e:
+        return False, f"Could not reach ModelScope API (network issue?): {e}"
     except Exception as e:
         return False, f"Invalid token: {e}"
 

@@ -216,7 +216,10 @@ def check_repo_exists(
 
         api = HubApi()
         api.login(token)
-        return api.repo_exists(repo_id=repo_id, repo_type=repo_type, token=token)
+        # ModelScope API doesn't support repo_type "space" — fall back to
+        # checking as "model" since spaces are uploaded as model repos on MS.
+        check_type = "model" if repo_type == "space" else repo_type
+        return api.repo_exists(repo_id=repo_id, repo_type=check_type, token=token)
 
     else:
         raise ValueError(f"Unknown platform: '{platform}'. Expected 'hf' or 'ms'.")

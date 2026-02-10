@@ -19,7 +19,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 
 ### Success Criteria
 - [x] Migrate a model repo from HF to ModelScope without any files touching the local machine
-- [x] Migrate in reverse (ModelScope to HF) with the same command — tested: furina-xl-lora 163 MB, 18.2s
+- [x] Migrate in reverse (ModelScope to HF) with the same command — tested: 163 MB model, 18.2s
 - [x] Support all three HF repo types: models, datasets, spaces
 - [x] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
 - [x] Batch migrate multiple repos in parallel (17 models + 3 datasets = 20 repos migrated)
@@ -29,16 +29,20 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Visibility preservation — private repos stay private on destination
 
 > **Test results**:
-> - Single model HF→MS: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s
-> - Single model MS→HF: furina-xl-lora — 163 MB, 18.2s (detached)
-> - Single model HF→MS detached: furina-xl-lora — 163 MB, 9.2s
-> - Single dataset: proseka-card-list — 7 files, 2.2 GB, 14m11s
+> - Single model HF→MS: 67 files, 15.6 GB, 7m30s
+> - Single model MS→HF: 163 MB, 18.2s (detached)
+> - Single model HF→MS detached: 163 MB, 9.2s
+> - Single dataset: 7 files, 2.2 GB, 14m11s
 > - Batch models: 17 models, ~189 GB, 43m44s (parallel containers)
-> - Batch datasets: pixiv-niji-journey — 16 files, 58.5 GB, 19m48s; bandori-card-dataset — 3 files, 2.3 GB (migrated separately)
-> - Parallel chunked: Curated_Aesthetic — 8.5 GB, 3 chunks, 5m50s
-> - Parallel chunked: danbooru2025-metadata-full — 1,048 files, 156 GB, 11 chunks, 46m16s (SHA256: 1047/1047 verified)
-> - Parallel chunked: pixiv-synthetic-70k — 39 files, 175 GB, 11 chunks, 28m49s (SHA256: 39/39 verified)
-> - Parallel chunked: Pixiv-2.6M-Dataset — 122 files, 613 GB, 41 chunks, 58m4s (SHA256: 122/122 verified)
+> - Batch datasets: 16 files, 58.5 GB, 19m48s; 3 files, 2.3 GB (migrated separately)
+> - Parallel chunked: 21 files, 8.5 GB, 3 chunks, 5m50s
+> - Parallel chunked: 1,048 files, 156 GB, 11 chunks, 46m16s (SHA256: 1047/1047 verified)
+> - Parallel chunked: 39 files, 175 GB, 11 chunks, 28m49s (SHA256: 39/39 verified)
+> - Parallel chunked: 59 files, 392 GB, 32 chunks, 1h15m (SHA256: 59/59 verified)
+> - Parallel chunked: 122 files, 613 GB, 41 chunks, 58m4s (SHA256: 122/122 verified)
+> - Parallel chunked: 184 files, 898 GB, 60 chunks, 53m3s (SHA256: 184/184 verified)
+> - Parallel chunked: 150 files, 1.0 TB, 85 chunks, 1h1m (SHA256: 149/149 verified)
+> - Parallel chunked: 678 files, 3.3 TB, 113 chunks, 2h0m (SHA256: 673/673 verified)
 > - Space migration: skipped to MS with warning (ModelScope Studios are web/git only)
 > - Error cases: nonexistent repo gives clean error; all token validations pass
 > - Git fallback: automatically triggered when HF API returns 403 (storage-locked org)
@@ -68,7 +72,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Creates the target HuggingFace repo if it doesn't exist
 - [x] Transfers all files via Modal container
 - [x] Reports progress and outputs destination URL
-- [x] End-to-end tested (furina-xl-lora MS→HF, 163 MB, 18.2s detached)
+- [x] End-to-end tested (MS→HF, 163 MB model, 18.2s detached)
 
 #### Feature 3: Credential Validation
 **Description**: Verify all three platform tokens before starting migration.
@@ -409,7 +413,7 @@ modal run scripts/modal_migrate.py::batch \
 - Detects source visibility per-repo; preserves on destination
 - Results stream back as each container completes
 - Summary printed at the end with success/fail/skipped counts
-- Tested: 17 models (~189 GB) in 43m44s; 3 datasets (~63 GB) including 58.5 GB pixiv-niji-journey in 19m48s
+- Tested: 17 models (~189 GB) in 43m44s; 3 datasets (~63 GB) including 58.5 GB dataset in 19m48s
 
 ### Plugin Manifest (.claude-plugin/plugin.json)
 
@@ -491,10 +495,10 @@ Examples:
 - [x] Add repo type auto-detection (`detect_repo_type` remote function)
 - [x] Add destination repo auto-creation (create_model/create_dataset on MS, create_repo exist_ok on HF)
 - [x] Add `@app.local_entrypoint()` for CLI orchestration (reads env tokens, parses args, calls remote)
-- [x] Test with a model repo (hitokomoru-diffusion-v2: 67 files, 15.6 GB, 7m30s)
-- [x] Test with a dataset repo (proseka-card-list: 7 files, 2.2 GB, 14m11s)
+- [x] Test with a model repo (67 files, 15.6 GB, 7m30s)
+- [x] Test with a dataset repo (7 files, 2.2 GB, 14m11s)
 - [x] Batch migration — models (17 repos, ~189 GB, 43m44s with parallel containers)
-- [x] Batch migration — datasets (pixiv-niji-journey: 16 files, 58.5 GB, 19m48s; bandori-card-dataset: migrated separately)
+- [x] Batch migration — datasets (16 files, 58.5 GB, 19m48s; 3 files, 2.3 GB migrated separately)
 
 ### Phase 3: Plugin Integration
 **Depends on**: Phase 2 (migration functions must work)
@@ -509,11 +513,11 @@ Examples:
 **Depends on**: Phase 3 (plugin must be functional end-to-end)
 - [x] Add progress reporting (file count, size, download/upload timing, total duration)
 - [x] Add error handling (try/except with contextual troubleshooting suggestions)
-- [x] Test with larger repos (15.6 GB model — hitokomoru-diffusion-v2)
+- [x] Test with larger repos (15.6 GB model)
 - [x] Test batch migration — models (17 repos, ~189 GB, 43m44s)
 - [x] Test batch migration — datasets (3 repos, ~63 GB)
 - [x] Test all repo types (model done, dataset done, space — skipped to MS with warning; ModelScope Studios are web/git only)
-- [x] Test both directions (HF→MS done, MS→HF done — furina-xl-lora 163 MB, 18.2s)
+- [x] Test both directions (HF→MS done, MS→HF done — 163 MB model, 18.2s)
 - [x] Test error cases (nonexistent repo: clean error "Repo not found on HuggingFace as model, dataset, or space")
 - [x] Write README with setup instructions
 
@@ -525,7 +529,7 @@ Examples:
 - [x] Update migration skill (`SKILL.md`) to mention detached mode
 - [x] Update `CLAUDE.md` with `--detach` usage
 - [x] Update `README.md` with detached mode documentation
-- [x] Test single migration with `--detach` — HF→MS furina-xl-lora 163 MB, 9.2s detached
+- [x] Test single migration with `--detach` — HF→MS 163 MB model, 9.2s detached
 - [x] Test batch migration with `--detach` — correctly detected & skipped 2 existing repos
 
 ---
@@ -585,7 +589,7 @@ Examples:
 - [x] `_verify_ms_upload` / `_verify_hf_upload` — per-file hash comparison, skip platform-generated files
 - [x] `_parse_lfs_pointer_full` — extract both size and SHA256 from LFS pointer files
 - [x] SHA256 passed through file manifest for parallel mode verification
-- [x] Tested: 1047/1047 matched (danbooru2025), 39/39 matched (pixiv-synthetic-70k)
+- [x] Tested: 1047/1047 matched (156 GB dataset), 39/39 matched (175 GB dataset)
 
 ---
 

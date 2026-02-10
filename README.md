@@ -208,29 +208,31 @@ All migrations are cloud-to-cloud via Modal. No local disk involved.
 
 ### Parallel Mode (chunked, multiple containers)
 
-| Repo | Size | Files | Chunks | Duration |
-|------|------|-------|--------|----------|
-| Curated_Aesthetic (dataset) | 8.5 GB | 21 | 3 | 5m 50s |
-| danbooru2025-metadata-full (dataset) | 156 GB | 1,048 | 11 | 46m 16s |
-| pixiv-synthetic-70k (dataset) | 175 GB | 39 | 11 | 28m 49s |
-| Pixiv-2.6M-Dataset (dataset) | 613 GB | 122 | 41 | 58m 4s |
-| nijijourney-v6-520k (dataset) | 898 GB | 184 | 60 | 53m 3s |
-| danbooru2024-7.9m-WEBP (dataset) | 3.3 TB | 678 | 113 | 2h 0m |
+| Size | Files | Chunks | Duration |
+|------|-------|--------|----------|
+| 8.5 GB | 21 | 3 | 5m 50s |
+| 156 GB | 1,048 | 11 | 46m 16s |
+| 175 GB | 39 | 11 | 28m 49s |
+| 392 GB | 59 | 32 | 1h 15m |
+| 613 GB | 122 | 41 | 58m 4s |
+| 898 GB | 184 | 60 | 53m 3s |
+| 1.0 TB | 150 | 85 | 1h 1m |
+| 3.3 TB | 678 | 113 | 2h 0m |
 
 ### Single Container
 
-| Repo | Size | Files | Duration |
-|------|------|-------|----------|
-| hitokomoru-diffusion-v2 (model) | 15.6 GB | 67 | 7m 30s |
-| furina-xl-lora (model, MS→HF) | 163 MB | — | 18.2s |
-| proseka-card-list (dataset) | 2.2 GB | 7 | 14m 11s |
-| pixiv-niji-journey (dataset) | 58.5 GB | 16 | 19m 48s |
+| Size | Files | Duration | Notes |
+|------|-------|----------|-------|
+| 163 MB | — | 18.2s | model, MS→HF |
+| 2.2 GB | 7 | 14m 11s | dataset |
+| 15.6 GB | 67 | 7m 30s | model |
+| 58.5 GB | 16 | 19m 48s | dataset |
 
 ### Batch Mode (one container per repo)
 
-| Batch | Repos | Total Size | Duration |
-|-------|-------|------------|----------|
-| cagliostrolab models | 17 | ~189 GB | 43m 44s |
+| Repos | Total Size | Duration |
+|-------|------------|----------|
+| 17 models | ~189 GB | 43m 44s |
 
 ## Troubleshooting
 

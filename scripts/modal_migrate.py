@@ -665,7 +665,7 @@ def _print_verification(verify: dict) -> None:
 def _estimate_duration(size_bytes: int) -> str:
     """Estimate migration duration based on benchmark data.
 
-    Benchmarks (cagliostrolab, 2026-02):
+    Benchmarks (Cagliostro Labs HF→MS migration, 2026-02):
         1.2 GB  -> 1m 16s  (~16 MB/s overall)
         8.5 GB  -> 10m 20s (~14 MB/s overall)
         9.3 GB  -> 12m 55s (~12 MB/s overall)

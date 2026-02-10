@@ -13,8 +13,18 @@ Usage:
     # Custom destination name
     modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --dest "OrgName/model-v2"
 
-    # Platform prefix instead of --to flag
-    modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
+    # Platform prefix (infers direction — no --to needed)
+    modal run scripts/modal_migrate.py::main --source "hf:username/my-model"
+
+    # Force git clone instead of Hub API
+    modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --use-git
+
+    # Parallel chunked migration (large repos, multiple containers)
+    modal run scripts/modal_migrate.py::main --source "org/large-dataset" --to ms --parallel
+    modal run scripts/modal_migrate.py::main --source "org/large-dataset" --to ms --parallel --chunk-size 30
+
+    # Batch (one container per repo)
+    modal run scripts/modal_migrate.py::batch --source "repo1,repo2,repo3" --to ms --repo-type model
 
     # Fire & forget (detached — continues in cloud after local exit)
     modal run --detach scripts/modal_migrate.py::main --source "username/my-model" --to ms
@@ -80,7 +90,7 @@ def _strip_protocol(domain: str) -> str:
 def _build_url(repo_id: str, platform: str, repo_type: str, ms_domain: str = "") -> str:
     """Build the web URL for a repo on the given platform.
 
-    Defined at module level so both remote functions can use it
+    Defined at module level so all remote functions can use it
     (remote functions cannot import from utils.py).
     """
     if platform == "hf":
@@ -936,6 +946,7 @@ def _list_hf_files(
                 if is_lfs:
                     size, sha256 = _parse_lfs_pointer_full(fpath)
                     if size is None:
+                        print(f"  WARNING: Could not parse LFS pointer for {relpath}, size unknown")
                         size = 0  # couldn't parse, will still be downloaded
                 else:
                     try:
@@ -1089,7 +1100,7 @@ def _migrate_chunk(
             except (ConnectionError, TimeoutError, OSError) as e:
                 last_error = e
                 if attempt < 2:
-                    wait = 5 * (3 ** attempt)  # 5s, 15s, 45s
+                    wait = 5 * (3 ** attempt)  # 5s, 15s
                     print(f"  [Chunk {chunk_index}/{total_chunks}] Upload failed (attempt {attempt + 1}), "
                           f"retrying in {wait}s...")
                     _time.sleep(wait)
@@ -1904,7 +1915,7 @@ def main(
             elif "not found" in error_msg or "404" in error_msg:
                 print("  - Verify the repo ID exists on the source platform")
             elif "timeout" in error_msg:
-                print("  - Repo may be too large. Try with --repo-type to skip auto-detect")
+                print("  - Repo may be too large. Try --parallel for large repos, or --repo-type to skip auto-detect")
             else:
                 print("  - Check Modal status: modal token verify")
                 print("  - Re-run token validation: python scripts/validate_tokens.py")

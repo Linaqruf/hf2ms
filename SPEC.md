@@ -312,7 +312,8 @@ hf2ms/
 │   └── migrate/
 │       ├── SKILL.md            # Migration skill (triggers on natural language)
 │       └── references/
-│           └── hub-api-reference.md  # HuggingFace & ModelScope SDK reference
+│           ├── hub-api-reference.md  # HuggingFace & ModelScope SDK reference
+│           └── verification-and-cleanup.md  # Post-migration verification guide
 │
 ├── scripts/
 │   ├── modal_migrate.py        # Modal app: migration functions
@@ -581,7 +582,7 @@ Examples:
 - [x] `_migrate_chunk` — independent container: clone → selective LFS pull → prune → upload (3x retry)
 - [x] Auto-adjust chunk size to cap at 100 containers
 - [x] `--parallel` and `--chunk-size` CLI flags on `main` entrypoint
-- [x] Tested: 8.5 GB/3 chunks, 156 GB/11 chunks, 175 GB/11 chunks, 613 GB/41 chunks, 898 GB/60 chunks, 1.0 TB/85 chunks, 3.3 TB/113 chunks
+- [x] Tested: 8.5 GB/3 chunks, 156 GB/11 chunks, 175 GB/11 chunks, 392 GB/32 chunks, 613 GB/41 chunks, 898 GB/60 chunks, 1.0 TB/85 chunks, 3.3 TB/113 chunks
 
 #### Phase 8: SHA256 Verification
 - [x] `_get_hf_sha256` — query HF API `files_metadata=True` for LFS SHA256 hashes

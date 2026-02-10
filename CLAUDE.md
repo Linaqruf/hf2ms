@@ -47,6 +47,7 @@ On Windows: prefix with `PYTHONIOENCODING=utf-8` to avoid Modal CLI Unicode erro
 - `commands/migrate.md` — `/migrate` slash command for Claude Code
 - `skills/migrate/SKILL.md` — Natural language migration skill
 - `skills/migrate/references/hub-api-reference.md` — SDK reference
+- `skills/migrate/references/verification-and-cleanup.md` — Post-migration verification & cleanup guide
 
 ## Built-in Safety
 

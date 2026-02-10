@@ -68,7 +68,7 @@ These features run automatically — no flags needed:
 - **SHA256 verification**: Every LFS file is hash-checked after upload. Skipped files (no extractable hash) are reported separately.
 - **Download progress monitoring**: For git-based downloads, a background thread monitors directory size and prints real-time progress.
 - **Size estimation**: Before starting, estimates migration duration based on benchmark data and prints an ETA.
-- **24-hour timeout**: All migration functions have an 86400s (24h) timeout, supporting repos up to ~3 TB in a single container.
+- **24-hour timeout**: All migration functions have an 86400s (24h) timeout. Tested up to 58.5 GB single-container; use `--parallel` for larger repos.
 
 ## Supported Repo Types
 

@@ -122,7 +122,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 2. ~~Destination existence check~~ — **Done.** Single mode warns, batch mode auto-skips existing repos.
 3. ~~Parallel chunked migration~~ — **Done.** `--parallel` flag splits repo into chunks across up to 100 containers. Auto-adjusts chunk size. Tested: 613 GB, 41 chunks.
 4. ~~SHA256 verification~~ — **Done.** Per-file SHA256 comparison between source and destination after upload. Uses HF `files_metadata=True` and MS `get_dataset_files`/`get_model_files` APIs.
-5. ~~Auto git fallback~~ — **Done.** `snapshot_download()` fails (403/404)? Automatically retries via `git clone --depth=1` + `git lfs pull`. Bypasses HF storage lockout.
+5. ~~Auto git fallback~~ — **Done.** `snapshot_download()` fails (403)? Automatically retries via `git clone --depth=1` + `git lfs pull`. Bypasses HF storage lockout.
 6. ~~Visibility preservation~~ — **Done.** Detects source visibility, creates destination with matching privacy setting.
 7. Programmatic spawn/poll pattern — Use `.spawn()` + `FunctionCall.from_id()` for async status checks within Claude (requires `modal deploy`)
 8. Model format conversion during migration (e.g., safetensors to GGUF)
@@ -378,7 +378,7 @@ Modal functions run in cloud containers (10 remote + 2 local entrypoints):
 - `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout)
 
 **Single-container migration:**
-- `migrate_hf_to_ms` — HF→MS transfer (86400s timeout); tries Hub API first, auto-falls back to git clone on 403/404
+- `migrate_hf_to_ms` — HF→MS transfer (86400s timeout); tries Hub API first, auto-falls back to git clone on 403
 - `migrate_hf_to_ms_git` — HF→MS transfer via git clone only (86400s timeout); for forced git mode
 - `migrate_ms_to_hf` — MS→HF transfer (86400s timeout); sanitizes README.md YAML for HF compatibility
 
@@ -415,7 +415,7 @@ modal run scripts/modal_migrate.py::batch \
 
 ```json
 {
-  "name": "hf-modal-modelscope",
+  "name": "hf2ms",
   "version": "1.4.0",
   "description": "Cloud-to-cloud ML repo migration via Modal. Transfer models and datasets between HuggingFace and ModelScope with parallel chunked transfers (up to 100 containers), SHA256 verification, and automatic git fallback. No local downloads.",
   "license": "MIT",
@@ -566,7 +566,7 @@ Examples:
 ### Post-MVP Features (shipped after Phase 5)
 
 #### Phase 6: Auto Git Fallback
-- [x] `migrate_hf_to_ms` tries Hub API first, falls back to `git clone --depth=1` + `git lfs pull` on 403/404
+- [x] `migrate_hf_to_ms` tries Hub API first, falls back to `git clone --depth=1` + `git lfs pull` on 403
 - [x] Dedicated `migrate_hf_to_ms_git` for forced git mode (`--use-git` flag)
 - [x] Token redaction in git error messages and tracebacks
 - [x] Directory size monitoring thread for git LFS progress (non-TTY workaround)

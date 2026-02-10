@@ -53,6 +53,6 @@ On Windows: prefix with `PYTHONIOENCODING=utf-8` to avoid Modal CLI Unicode erro
 - **Auto-fallback**: `snapshot_download()` fails with 403? Automatically retries via `git clone` + `git lfs pull`
 - **Fail-fast validation**: Destination namespace checked before download starts
 - **Visibility preservation**: Private repos stay private on destination
-- **SHA256 verification**: Every LFS file hash-checked after upload
+- **SHA256 verification**: LFS file hashes checked after upload (skips platform-generated files and files without extractable hashes)
 - **Progress monitoring**: Real-time directory size tracking during git downloads
 - **Size estimation**: ETA printed before migration starts

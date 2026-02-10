@@ -129,27 +129,6 @@ def _dir_stats(path: str, exclude_dirs: set[str] | None = None) -> tuple[int, in
     return file_count, total_bytes
 
 
-def _parse_lfs_pointer(filepath: str) -> int | None:
-    """Read a git-lfs pointer file and extract the size in bytes.
-
-    Pointer format:
-        version https://git-lfs.github.com/spec/v1
-        oid sha256:abc123...
-        size 12345
-
-    Returns size in bytes, or None if not a valid pointer.
-    """
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read(1024)
-        for line in content.splitlines():
-            if line.startswith("size "):
-                return int(line.split(" ", 1)[1])
-    except (OSError, ValueError, UnicodeDecodeError):
-        pass
-    return None
-
-
 def _parse_lfs_pointer_full(filepath: str) -> tuple[int | None, str | None]:
     """Read a git-lfs pointer file and extract size and SHA256.
 
@@ -328,13 +307,17 @@ def _git_clone_hf(hf_repo_id: str, repo_type: str, hf_token: str, work_dir: str)
 
     def _monitor_dir_size():
         last_size = 0
+        _logged_error = False
         while not stop_monitor.is_set():
             stop_monitor.wait(PROGRESS_INTERVAL)
             if stop_monitor.is_set():
                 break
             try:
                 _, cur_size = _dir_stats(clone_dir, exclude_dirs={".git"})
-            except Exception:
+            except Exception as _me:
+                if not _logged_error:
+                    print(f"       WARNING: Progress monitor error: {_me}")
+                    _logged_error = True
                 continue
             elapsed = _time.time() - lfs_start
             if cur_size > last_size:
@@ -470,6 +453,9 @@ def _verify_ms_upload(
     Uses get_dataset_files / get_model_files to enumerate destination files
     and compare file count, total size, and SHA256 hashes against source.
 
+    Note: Platform-generated files (.gitattributes, README.md) are excluded
+    from SHA256 comparison as they may differ between platforms.
+
     Args:
         source_sha256: Optional mapping of {path: sha256_hex} from the source
                        platform. If provided, enables per-file hash verification.
@@ -581,6 +567,9 @@ def _verify_hf_upload(
             "source_files": expected_file_count,
             "source_size": _format_size(expected_bytes),
         }
+        if siblings is None:
+            result["verify_error"] = "Destination file listing unavailable (API returned no file data)"
+            return result
         if siblings is not None:
             dest_files = len(siblings)
             dest_size = sum(getattr(s, "size", 0) or 0 for s in siblings)
@@ -668,6 +657,9 @@ def _print_verification(verify: dict) -> None:
     if "verify_error" in verify:
         print(f"    WARNING: Verification failed: {verify['verify_error']}")
         print("    Data integrity could not be confirmed.")
+    elif "sha256_matched" not in verify and "dest_files" in verify:
+        print("    SHA256:      not checked (source hashes unavailable)")
+
 
 
 def _estimate_duration(size_bytes: int) -> str:
@@ -881,7 +873,9 @@ def _list_hf_files(
     """Clone repo structure (no LFS content) and return file manifest.
 
     Returns list of dicts:
-        [{"path": "weights/model.safetensors", "size": 4800000000, "is_lfs": True}, ...]
+        [{"path": "weights/model.safetensors", "size": 4800000000, "is_lfs": True,
+          "sha256": "abc123..."}, ...]
+    The "sha256" key is only present for LFS files with valid pointer files.
     """
     import os
     import shutil
@@ -1044,13 +1038,18 @@ def _migrate_chunk(
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+            lfs_errors = []
             for line in lfs_proc.stdout:
                 clean = line.rstrip().replace(hf_token, "***")
-                if clean:
-                    pass  # suppress verbose LFS output
+                if clean and any(k in clean.lower() for k in ("error", "fatal", "fail")):
+                    lfs_errors.append(clean)
             lfs_proc.wait()
             if lfs_proc.returncode != 0:
-                raise RuntimeError(f"git lfs pull failed (exit {lfs_proc.returncode})")
+                raise RuntimeError(
+                    f"git lfs pull failed (exit {lfs_proc.returncode})"
+                    + (f": {' '.join(lfs_errors[-3:])}" if lfs_errors else ""))
+            if lfs_errors:
+                print(f"  [Chunk {chunk_index}/{total_chunks}] LFS warnings: {'; '.join(lfs_errors[:3])}")
 
         dl_time = _time.time() - start
         print(f"  [Chunk {chunk_index}/{total_chunks}] Downloaded in {_format_duration(dl_time)}")
@@ -1599,6 +1598,7 @@ def main(
         parallel: Use parallel chunked migration (fan out to multiple containers).
             Splits repo into chunks, each processed by an independent container.
             Auto-adjusts chunk size to cap at 100 concurrent containers.
+            Currently supported for HF→MS direction only; ignored for MS→HF.
         chunk_size: Chunk size in GB for parallel mode (default: 20).
             Auto-increased for large repos to stay within the 100-container limit.
     """
@@ -1733,6 +1733,11 @@ def main(
         start = time.time()
         print("Starting migration...")
         print()
+
+        if parallel and not (src_plat == "hf" and dst_plat == "ms"):
+            print("  WARNING: --parallel is only supported for HF→MS direction. "
+                  "Proceeding with single-container mode.")
+            print()
 
         if src_plat == "hf" and dst_plat == "ms" and parallel:
             # --- Parallel chunked migration ---
@@ -1880,7 +1885,7 @@ def main(
             print(f"ERROR: Unsupported direction {src_plat} -> {dst_plat}")
             return
 
-        # 10. Report
+        # 11. Report
         print()
         print("=" * 50)
         if result["status"] in ("success", "partial"):
@@ -1931,12 +1936,14 @@ def main(
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
+        err_msg = str(e)
         # Redact tokens if they were loaded before the error
         for _tok in [locals().get("hf_token"), locals().get("ms_token")]:
             if _tok:
                 tb = tb.replace(_tok, "***")
+                err_msg = err_msg.replace(_tok, "***")
         print()
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error: {err_msg}")
         print(tb)
         print("If this persists, check:")
         print("  - Modal account: modal token verify")
@@ -1959,6 +1966,8 @@ def batch(
         repo_type: "model", "dataset", or "space". Applied to all repos (default: model).
         use_git: Use git clone + LFS instead of HF Hub API for download.
             Bypasses 403 storage-limit lockout on private repos.
+
+    Note: --parallel is not supported in batch mode (use ::main per-repo instead).
     """
     from utils import detect_direction, get_env_token, get_ms_domain, parse_repo_id
 
@@ -2183,12 +2192,14 @@ def batch(
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
+        err_msg = str(e)
         # Redact tokens if they were loaded before the error
         for _tok in [locals().get("hf_token"), locals().get("ms_token")]:
             if _tok:
                 tb = tb.replace(_tok, "***")
+                err_msg = err_msg.replace(_tok, "***")
         print()
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error: {err_msg}")
         print(tb)
         print("If this persists, check:")
         print("  - Modal account: modal token verify")

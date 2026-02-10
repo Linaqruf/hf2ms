@@ -112,7 +112,7 @@ modal run scripts/modal_migrate.py::main --source "org/large-dataset" --to ms --
 modal run scripts/modal_migrate.py::main --source "org/my-dataset" --to ms --repo-type dataset --parallel
 ```
 
-Chunk size auto-adjusts upward if the repo would exceed 100 containers.
+Chunk size auto-adjusts upward if the repo would exceed 100 containers. Parallel mode is currently HuggingFace → ModelScope only.
 
 ### Batch (Multiple Repos)
 
@@ -180,7 +180,7 @@ Spaces to ModelScope are skipped because ModelScope Studios can only be created 
 
 ## How the Git Fallback Works
 
-When `snapshot_download()` fails — 403 from storage-locked orgs, 404 masking on private repos — hf2ms automatically retries using raw `git clone --depth=1` + `git lfs pull`. This bypasses all Hub API restrictions because git-based access is always available. The fallback is seamless: same result, no user intervention needed.
+When `snapshot_download()` fails — 403 from storage-locked orgs or access errors wrapped in `LocalEntryNotFoundError` — hf2ms automatically retries using raw `git clone --depth=1` + `git lfs pull`. This bypasses Hub API restrictions because git-based access is always available. The fallback is seamless: same result, no user intervention needed. (404s for genuinely missing repos are not retried.)
 
 You can also force git mode with `--use-git` for any migration.
 
@@ -260,9 +260,10 @@ commands/
   migrate.md              /migrate slash command
 
 skills/migrate/
-  SKILL.md                Natural language migration skill
+  SKILL.md                          Natural language migration skill
   references/
-    hub-api-reference.md  HuggingFace & ModelScope SDK reference
+    hub-api-reference.md            HuggingFace & ModelScope SDK reference
+    verification-and-cleanup.md     Post-migration verification guide
 ```
 
 ## License

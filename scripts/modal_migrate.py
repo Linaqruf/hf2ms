@@ -167,7 +167,8 @@ def _build_chunks(
     """Split file manifest into chunks of approximately chunk_size_bytes.
 
     Chunk 0 always contains ALL non-LFS files (metadata, READMEs, configs).
-    LFS files are sorted largest-first, then assigned using greedy bin-packing.
+    LFS files are sorted largest-first, then assigned using next-fit decreasing:
+    each file goes into the last chunk if it fits, otherwise starts a new chunk.
     A single file larger than chunk_size_bytes gets its own chunk.
     """
     non_lfs = [f for f in file_manifest if not f["is_lfs"]]
@@ -178,7 +179,6 @@ def _build_chunks(
     )
 
     # Chunk 0 starts with all non-LFS files
-    chunk0_size = sum(f["size"] for f in non_lfs)
     chunks: list[list[dict]] = [list(non_lfs)]
 
     for f in lfs:
@@ -903,6 +903,9 @@ def _list_hf_files(
                     path = parts[2].strip()
                     if path:
                         lfs_paths.add(path)
+        else:
+            print(f"  WARNING: git lfs ls-files failed (rc={lfs_proc.returncode}), "
+                  "treating all files as non-LFS. SHA256 from pointer files unavailable.")
 
         # Build manifest
         manifest = []
@@ -1071,13 +1074,18 @@ def _migrate_chunk(
             try:
                 api.upload_folder(**upload_kwargs)
                 break
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 last_error = e
                 if attempt < 2:
                     wait = 5 * (3 ** attempt)  # 5s, 15s, 45s
                     print(f"  [Chunk {chunk_index}/{total_chunks}] Upload failed (attempt {attempt + 1}), "
                           f"retrying in {wait}s...")
                     _time.sleep(wait)
+            except Exception as e:
+                # Non-transient errors (auth, permission, bad request) — fail immediately
+                raise RuntimeError(
+                    f"Chunk {chunk_index} upload failed (non-retryable): {e}"
+                ) from e
         else:
             raise RuntimeError(
                 f"Chunk {chunk_index} upload failed after 3 attempts: {last_error}"
@@ -1098,8 +1106,11 @@ def _migrate_chunk(
             "duration": _format_duration(total_time),
         }
     except Exception as e:
+        import traceback as _tb
         err_msg = str(e).replace(hf_token, "***").replace(ms_token, "***")
+        tb_str = _tb.format_exc().replace(hf_token, "***").replace(ms_token, "***")
         print(f"  [Chunk {chunk_index}/{total_chunks}] FAILED: {err_msg}")
+        print(f"  [Chunk {chunk_index}/{total_chunks}] Traceback:\n{tb_str}")
         return {
             "status": "error",
             "chunk_index": chunk_index,
@@ -1564,9 +1575,9 @@ def main(
             Bypasses 403 storage-limit lockout on private repos.
         parallel: Use parallel chunked migration (fan out to multiple containers).
             Splits repo into chunks, each processed by an independent container.
-            Auto-adjusts chunk size to cap at 50 concurrent containers.
+            Auto-adjusts chunk size to cap at 100 concurrent containers.
         chunk_size: Chunk size in GB for parallel mode (default: 20).
-            Auto-increased for large repos to stay within the 50-container limit.
+            Auto-increased for large repos to stay within the 100-container limit.
     """
     # Import utils here — only the local entrypoint needs them,
     # and they're not available inside the Modal container.
@@ -1654,7 +1665,7 @@ def main(
                         print(f"  Source size:       {_format_size(source_size_bytes)}")
                         print(f"  Estimated time:    {_estimate_duration(source_size_bytes)}")
             except Exception:
-                print("  Could not detect source visibility, defaulting to private")
+                print("  WARNING: Could not detect source visibility, defaulting to private")
         elif src_plat == "ms":
             try:
                 import os as _os
@@ -1680,7 +1691,7 @@ def main(
                         print(f"  Source size:       {_format_size(source_size_bytes)}")
                         print(f"  Estimated time:    {_estimate_duration(source_size_bytes)}")
             except Exception:
-                print("  Could not detect source visibility, defaulting to private")
+                print("  WARNING: Could not detect source visibility, defaulting to private")
 
         # 9. Check if destination repo already exists
         dest_token = ms_token if dst_plat == "ms" else hf_token
@@ -1797,8 +1808,7 @@ def main(
             # Build result for reporting
             total_uploaded_files = sum(r.get("file_count", 0) for r in succeeded)
             total_uploaded_bytes = sum(r.get("total_bytes", 0) for r in succeeded)
-            url = f"https://modelscope.ai/datasets/{dest_repo_id}" if repo_type == "dataset" \
-                else f"https://modelscope.ai/models/{dest_repo_id}"
+            url = build_url(dest_repo_id, "ms", repo_type)
 
             result = {
                 "status": "success" if not failed else "partial",
@@ -2010,9 +2020,11 @@ def batch(
                             repo_privacy[rid] = getattr(info, "private", True)
                         except Exception:
                             repo_privacy[rid] = True  # default private
+                            print(f"    WARNING: Could not detect visibility for {rid}, defaulting to private")
                 except Exception:
                     for rid in hf_source_repos:
                         repo_privacy[rid] = True
+                    print(f"    WARNING: HF API init failed, defaulting all {len(hf_source_repos)} repos to private")
             # MS source repos
             ms_source_repos = [rid for rid, sp in active_repos if sp == "ms"]
             if ms_source_repos:
@@ -2033,9 +2045,11 @@ def batch(
                             repo_privacy[rid] = ms_vis != 5
                         except Exception:
                             repo_privacy[rid] = True
+                            print(f"    WARNING: Could not detect visibility for {rid}, defaulting to private")
                 except Exception:
                     for rid in ms_source_repos:
                         repo_privacy[rid] = True
+                    print(f"    WARNING: MS API init failed, defaulting all {len(ms_source_repos)} repos to private")
             n_priv = sum(1 for v in repo_privacy.values() if v)
             n_pub = sum(1 for v in repo_privacy.values() if not v)
             print(f"  {n_priv} private, {n_pub} public")

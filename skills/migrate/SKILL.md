@@ -39,7 +39,7 @@ Each migration spins up a fresh Modal container, transfers files via platform SD
 ## Migration Modes
 
 ### Standard (default)
-Single container downloads the entire repo, then uploads it. Works for repos up to ~500 GB.
+Single container downloads the entire repo, then uploads it. Tested up to 58.5 GB; 24-hour timeout supports larger repos. Use `--parallel` for anything over ~50 GB.
 
 ### Parallel (`--parallel`)
 Splits the repo into chunks, each processed by an independent container. Up to 100 containers run concurrently. Each chunk worker: clones repo structure (no LFS data) -> selectively pulls its assigned LFS files -> uploads to destination. Best for repos over 50 GB.
@@ -103,7 +103,7 @@ set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCOD
 # Single repo (explicit type, custom destination)
 set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms --repo-type model --dest "OrgName/model-v2"
 
-# Parallel chunked (large repos — splits into chunks across up to 50 containers)
+# Parallel chunked (large repos — splits into chunks across up to 100 containers)
 set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/big-dataset" --to ms --repo-type dataset --parallel
 
 # Parallel with custom chunk size (default 20 GB, auto-adjusted for very large repos)

@@ -23,7 +23,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Support all three HF repo types: models, datasets, spaces
 - [x] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
 - [x] Batch migrate multiple repos in parallel (17 models + 3 datasets = 20 repos migrated)
-- [x] Parallel chunked migration for TB-scale repos (up to 50 containers) — tested: 613 GB, 41 chunks
+- [x] Parallel chunked migration for TB-scale repos (up to 100 containers) — tested: 613 GB, 41 chunks
 - [x] SHA256 verification of every LFS file after upload
 - [x] Auto-fallback from Hub API to git clone when API is blocked (403, storage lock)
 - [x] Visibility preservation — private repos stay private on destination
@@ -120,7 +120,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 ### Future Scope (Post-MVP)
 1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 20 repos, ~252 GB.
 2. ~~Destination existence check~~ — **Done.** Single mode warns, batch mode auto-skips existing repos.
-3. ~~Parallel chunked migration~~ — **Done.** `--parallel` flag splits repo into chunks across up to 50 containers. Auto-adjusts chunk size. Tested: 613 GB, 41 chunks.
+3. ~~Parallel chunked migration~~ — **Done.** `--parallel` flag splits repo into chunks across up to 100 containers. Auto-adjusts chunk size. Tested: 613 GB, 41 chunks.
 4. ~~SHA256 verification~~ — **Done.** Per-file SHA256 comparison between source and destination after upload. Uses HF `files_metadata=True` and MS `get_dataset_files`/`get_model_files` APIs.
 5. ~~Auto git fallback~~ — **Done.** `snapshot_download()` fails (403/404)? Automatically retries via `git clone --depth=1` + `git lfs pull`. Bypasses HF storage lockout.
 6. ~~Visibility preservation~~ — **Done.** Detects source visibility, creates destination with matching privacy setting.
@@ -384,7 +384,7 @@ Modal functions run in cloud containers (10 remote + 2 local entrypoints):
 
 **Parallel chunked migration:**
 - `_list_hf_files` — clone repo structure (no LFS), build file manifest with sizes + SHA256 (600s timeout)
-- `_migrate_chunk` — download + upload one chunk; max 50 containers (86400s timeout)
+- `_migrate_chunk` — download + upload one chunk; max 100 containers (86400s timeout)
 - `_ensure_ms_repo_remote` — create MS repo from local entrypoint (120s timeout)
 - `_verify_parallel_upload` — SHA256 verify all files after chunked upload (600s timeout)
 
@@ -417,7 +417,7 @@ modal run scripts/modal_migrate.py::batch \
 {
   "name": "hf-modal-modelscope",
   "version": "1.4.0",
-  "description": "Cloud-to-cloud ML repo migration via Modal. Transfer models and datasets between HuggingFace and ModelScope with parallel chunked transfers (up to 50 containers), SHA256 verification, and automatic git fallback. No local downloads.",
+  "description": "Cloud-to-cloud ML repo migration via Modal. Transfer models and datasets between HuggingFace and ModelScope with parallel chunked transfers (up to 100 containers), SHA256 verification, and automatic git fallback. No local downloads.",
   "license": "MIT",
   "author": { "name": "Linaqruf", "url": "https://github.com/Linaqruf" },
   "repository": "https://github.com/Linaqruf/hf2ms",
@@ -537,7 +537,7 @@ Examples:
 | 1 | ModelScope SDK version — older `modelscope` vs newer `modelhub` API? | Use `modelscope.hub.api.HubApi` — `create_model()` + `upload_folder()` (HTTP-based, no git). `push_model()` was deprecated and required git. | Affects upload implementation in Modal function | Resolved |
 | 2 | ModelScope repo naming — does namespace differ from HF? | A) Map HF username → MS username directly, B) Ask user for MS namespace | Affects auto-naming of destination repos | Resolved — same name works fine, `--dest` flag available for custom mapping |
 | 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Resolved — spaces to MS are skipped with a warning. ModelScope Studios are web/git only (SDK has `# TODO: support studio`). Users can force with `--repo-type model`. |
-| 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — `--parallel` mode splits repos across up to 50 containers. Tested: 613 GB (41 chunks). Single container tested up to 58.5 GB. |
+| 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — `--parallel` mode splits repos across up to 100 containers. Tested: 613 GB (41 chunks). Single container tested up to 58.5 GB. |
 | 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — increased to 86400s (24h). With parallel mode, individual chunks finish much faster. |
 
 ---
@@ -560,7 +560,7 @@ Examples:
 - **v1.0.0**: Core migration (Phases 1-5). Single + batch + detached mode.
 - **v1.1.0**: Auto git fallback for 403-locked orgs. Container image now includes git + git-lfs.
 - **v1.2.0**: Visibility preservation — private repos stay private on destination.
-- **v1.3.0**: Parallel chunked migration — `--parallel` flag, up to 50 containers, TB-scale repos.
+- **v1.3.0**: Parallel chunked migration — `--parallel` flag, up to 100 containers, TB-scale repos.
 - **v1.4.0**: SHA256 verification — per-file hash comparison after upload using HF/MS APIs.
 
 ### Post-MVP Features (shipped after Phase 5)
@@ -573,9 +573,9 @@ Examples:
 
 #### Phase 7: Parallel Chunked Migration
 - [x] `_list_hf_files` — clone structure, build file manifest with LFS sizes + SHA256 from pointers
-- [x] `_build_chunks` — greedy bin-packing: non-LFS in chunk 0, LFS sorted largest-first
+- [x] `_build_chunks` — next-fit decreasing: non-LFS in chunk 0, LFS sorted largest-first
 - [x] `_migrate_chunk` — independent container: clone → selective LFS pull → prune → upload (3x retry)
-- [x] Auto-adjust chunk size to cap at 50 containers
+- [x] Auto-adjust chunk size to cap at 100 containers
 - [x] `--parallel` and `--chunk-size` CLI flags on `main` entrypoint
 - [x] Tested: 8.5 GB/3 chunks, 156 GB/11 chunks, 175 GB/11 chunks, 613 GB/41 chunks
 

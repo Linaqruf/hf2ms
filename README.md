@@ -21,12 +21,12 @@ Your Machine              Modal Container (ephemeral)              Platforms
                               ↕ spins up, transfers, shuts down
 ```
 
-No files touch your machine. Modal provisions a container, downloads from the source platform's API, uploads to the destination, verifies SHA256 integrity, and destroys the container. For large repos, it fans out to up to 50 parallel containers.
+No files touch your machine. Modal provisions a container, downloads from the source platform's API, uploads to the destination, verifies SHA256 integrity, and destroys the container. For large repos, it fans out to up to 100 parallel containers.
 
 ## Features
 
 - **Zero local storage** — everything transfers cloud-to-cloud on Modal containers
-- **Parallel chunked migration** — splits large repos across up to 50 containers for TB-scale transfers
+- **Parallel chunked migration** — splits large repos across up to 100 containers for TB-scale transfers
 - **SHA256 verification** — every LFS file hash-checked end-to-end after upload
 - **Auto git fallback** — if the Hub API fails (403, storage lock), seamlessly retries via `git clone` + `git lfs pull`
 - **Visibility preservation** — private repos stay private on the destination
@@ -112,7 +112,7 @@ modal run scripts/modal_migrate.py::main --source "org/large-dataset" --to ms --
 modal run scripts/modal_migrate.py::main --source "org/my-dataset" --to ms --repo-type dataset --parallel
 ```
 
-Chunk size auto-adjusts upward if the repo would exceed 50 containers.
+Chunk size auto-adjusts upward if the repo would exceed 100 containers.
 
 ### Batch (Multiple Repos)
 

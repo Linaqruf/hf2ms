@@ -17,8 +17,8 @@ Parse the user's argument string to extract:
 3. **--type** flag — `model`, `dataset`, or `space`. If omitted, auto-detect.
 4. **--dest** flag — custom destination repo ID. Defaults to same as source.
 5. **--detach** flag — run in fire-and-forget mode. Migration continues in Modal's cloud even after the local process exits.
-6. **--parallel** flag — use parallel chunked migration. Splits the repo into chunks processed by independent containers (up to 50 concurrent). Best for repos over 50 GB.
-7. **--chunk-size** flag — chunk size in GB for parallel mode (default: 20). Auto-adjusted upward for very large repos to stay within 50 containers.
+6. **--parallel** flag — use parallel chunked migration. Splits the repo into chunks processed by independent containers (up to 100 concurrent). Best for repos over 50 GB.
+7. **--chunk-size** flag — chunk size in GB for parallel mode (default: 20). Auto-adjusted upward for very large repos to stay within 100 containers.
 
 ### Examples
 

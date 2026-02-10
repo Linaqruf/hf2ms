@@ -13,7 +13,7 @@ GitHub: https://github.com/Linaqruf/hf2ms
 - Optional: `MODELSCOPE_DOMAIN` (default: `modelscope.cn`, set `modelscope.ai` for international)
 - Modal only auto-mounts the entrypoint file — `utils.py` imports must be lazy (inside `main()`)
 - 24-hour timeout per container (86400s)
-- Parallel mode: up to 50 concurrent containers per migration
+- Parallel mode: up to 100 concurrent containers per migration
 
 ## Commands
 

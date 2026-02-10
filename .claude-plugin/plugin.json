@@ -1,5 +1,5 @@
 {
-  "name": "hf-modal-modelscope",
+  "name": "hf2ms",
   "version": "1.4.0",
   "description": "Cloud-to-cloud ML repo migration via Modal. Transfer models and datasets between HuggingFace and ModelScope with parallel chunked transfers (up to 100 containers), SHA256 verification, and automatic git fallback. No local downloads.",
   "license": "MIT",

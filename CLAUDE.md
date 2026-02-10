@@ -1,38 +1,58 @@
-# HF2MS — HuggingFace to ModelScope Migration Plugin
+# hf2ms — Cloud-to-Cloud ML Repo Migration
 
-Migrate HuggingFace repos (models, datasets, spaces) to/from ModelScope using Modal as cloud compute. No local downloads.
+Migrate HuggingFace repos (models, datasets) to/from ModelScope using Modal as a cloud compute bridge. No files touch the local machine.
 
 GitHub: https://github.com/Linaqruf/hf2ms
-
-## Spec Reference
-
-Primary spec: `SPEC.md`
 
 ## Key Constraints
 
 - All file transfers happen on Modal containers — never download to local machine
-- Minimal container image: only `huggingface_hub` + `modelscope` SDKs, no torch/transformers
-- Ephemeral containers only (no persistent Modal Volumes for v1)
-- Tokens required: `HF_TOKEN`, `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `MODELSCOPE_TOKEN`
-- Optional: `MODELSCOPE_DOMAIN` — set to `modelscope.ai` for international site (default: `modelscope.cn`)
-- ModelScope upload uses `HubApi.upload_folder()` (HTTP-based, no git required)
+- Minimal container image: `huggingface_hub` + `modelscope` + `git-lfs` (no torch/transformers)
+- Ephemeral containers only (no persistent Modal Volumes)
+- Tokens: `HF_TOKEN`, `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `MODELSCOPE_TOKEN`
+- Optional: `MODELSCOPE_DOMAIN` (default: `modelscope.cn`, set `modelscope.ai` for international)
 - Modal only auto-mounts the entrypoint file — `utils.py` imports must be lazy (inside `main()`)
-- Batch migration uses `starmap()` for parallel containers — each repo gets its own container
-- Destination existence check: single mode warns, batch mode auto-skips existing repos
-- Out of scope: format conversion, quantization, scheduling
+- 24-hour timeout per container (86400s)
+- Parallel mode: up to 50 concurrent containers per migration
 
 ## Commands
 
-- `modal run scripts/modal_migrate.py::main --source <repo> --to <hf|ms>` — Single migration
-- `modal run scripts/modal_migrate.py::batch --source "repo1,repo2,repo3" --to <hf|ms> --repo-type <type>` — Batch (parallel)
-- `modal run --detach scripts/modal_migrate.py::main --source <repo> --to <hf|ms>` — Detached single (fire & forget)
-- `modal run --detach scripts/modal_migrate.py::batch --source "repo1,repo2" --to <hf|ms> --repo-type <type>` — Detached batch
-- `modal run scripts/modal_migrate.py::hello_world` — Smoke test Modal setup
-- On Windows: prefix with `PYTHONIOENCODING=utf-8` to avoid Modal CLI Unicode errors
-- `python scripts/validate_tokens.py` — Validate all platform tokens
-- `/migrate` — Claude Code slash command for guided migration
-- `modal app logs hf-ms-migrate` / `modal app list` / `modal app stop hf-ms-migrate` — Monitor detached runs
+```bash
+# Single repo
+modal run scripts/modal_migrate.py::main --source "user/repo" --to ms
 
-## Current Status
+# Parallel (large repos)
+modal run scripts/modal_migrate.py::main --source "user/repo" --to ms --parallel
 
-All phases complete (including detached mode). Tested: single HF→MS (15.6 GB, 7m30s), single MS→HF (163 MB, 18.2s), batch models (17 repos, ~189 GB, 43m44s), batch datasets (3 repos, ~63 GB), detached mode, space rejection.
+# Batch (multiple repos)
+modal run scripts/modal_migrate.py::batch --source "repo1,repo2,repo3" --to ms --repo-type model
+
+# Detached (fire & forget)
+modal run --detach scripts/modal_migrate.py::main --source "user/repo" --to ms
+
+# Token validation
+python scripts/validate_tokens.py
+
+# Smoke test
+modal run scripts/modal_migrate.py::hello_world
+```
+
+On Windows: prefix with `PYTHONIOENCODING=utf-8` to avoid Modal CLI Unicode errors.
+
+## Architecture
+
+- `scripts/modal_migrate.py` — Modal app with all remote functions
+- `scripts/validate_tokens.py` — Token validation utility
+- `scripts/utils.py` — Shared helpers (repo parsing, direction detection)
+- `commands/migrate.md` — `/migrate` slash command for Claude Code
+- `skills/migrate/SKILL.md` — Natural language migration skill
+- `skills/migrate/references/hub-api-reference.md` — SDK reference
+
+## Built-in Safety
+
+- **Auto-fallback**: `snapshot_download()` fails with 403? Automatically retries via `git clone` + `git lfs pull`
+- **Fail-fast validation**: Destination namespace checked before download starts
+- **Visibility preservation**: Private repos stay private on destination
+- **SHA256 verification**: Every LFS file hash-checked after upload
+- **Progress monitoring**: Real-time directory size tracking during git downloads
+- **Size estimation**: ETA printed before migration starts

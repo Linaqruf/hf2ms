@@ -1,6 +1,6 @@
 ---
 description: Migrate repos between HuggingFace and ModelScope via Modal
-argument-hint: "<source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach]"
+argument-hint: "<source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach] [--parallel] [--chunk-size N]"
 allowed-tools: [Bash, Read, Glob, AskUserQuestion]
 ---
 
@@ -17,6 +17,8 @@ Parse the user's argument string to extract:
 3. **--type** flag — `model`, `dataset`, or `space`. If omitted, auto-detect.
 4. **--dest** flag — custom destination repo ID. Defaults to same as source.
 5. **--detach** flag — run in fire-and-forget mode. Migration continues in Modal's cloud even after the local process exits.
+6. **--parallel** flag — use parallel chunked migration. Splits the repo into chunks processed by independent containers (up to 50 concurrent). Best for repos over 50 GB.
+7. **--chunk-size** flag — chunk size in GB for parallel mode (default: 20). Auto-adjusted upward for very large repos to stay within 50 containers.
 
 ### Examples
 
@@ -28,6 +30,8 @@ Parse the user's argument string to extract:
 | `alice/my-dataset --to ms --type dataset` | `alice/my-dataset` | HF→MS | dataset |
 | `alice/my-model --to ms --dest OrgName/model-v2` | `alice/my-model` | HF→MS (dest: `OrgName/model-v2`) | auto-detect |
 | `alice/my-model --to ms --detach` | `alice/my-model` | HF→MS (detached) | auto-detect |
+| `alice/big-dataset --to ms --parallel` | `alice/big-dataset` | HF→MS (parallel) | auto-detect |
+| `alice/huge-data --to ms --parallel --chunk-size 50` | `alice/huge-data` | HF→MS (parallel, 50GB chunks) | auto-detect |
 
 If the argument is empty or cannot be parsed, ask the user:
 
@@ -96,6 +100,7 @@ Before running, always confirm with the user. Show:
 Migration Summary:
   Source:      [Platform] / [repo-id] ([type])
   Destination: [Platform] / [dest-repo-id]
+  Mode:        [Standard | Parallel (20 GB chunks)]
 
 Proceed?
 ```
@@ -140,6 +145,8 @@ Build the command from the parsed arguments:
 - Use `::main` entrypoint for single-repo migrations (not bare `modal_migrate.py`)
 - Include `--repo-type` only if the user specified it (otherwise let it auto-detect)
 - Always include `--dest` with the confirmed destination from Step 3
+- Include `--parallel` if the user specified it or if the repo is very large (>50 GB). For large repos, proactively suggest parallel mode.
+- Include `--chunk-size` only if the user explicitly set it (default 20 is usually fine; auto-adjusted for large repos)
 
 ### Step 6: Report Result
 
@@ -147,11 +154,18 @@ Build the command from the parsed arguments:
 
 After the command completes:
 
-**On success**: Report the destination URL and file count. Example:
+**On success**: Report the destination URL, file count, and verification result. The script outputs these automatically. Example:
 ```
 Migration complete!
-  URL:   https://modelscope.cn/models/username/model-name
-  Files: 42
+  URL:      https://modelscope.cn/models/username/model-name
+  Files:    42
+  Size:     12.5 GB
+  Duration: 8m 30s
+
+Verification:
+  Source files: 42
+  Source size:  12.5 GB
+  Dest files:   42  [OK]
 ```
 
 **On failure**: Show the error output from Modal and suggest troubleshooting:

@@ -1,7 +1,7 @@
 {
   "name": "hf-modal-modelscope",
-  "version": "1.0.0",
-  "description": "Migrate repos between HuggingFace and ModelScope via Modal — no local downloads. Supports models, datasets, and spaces with cloud-to-cloud transfer.",
+  "version": "1.4.0",
+  "description": "Cloud-to-cloud ML repo migration via Modal. Transfer models and datasets between HuggingFace and ModelScope with parallel chunked transfers (up to 50 containers), SHA256 verification, and automatic git fallback. No local downloads.",
   "license": "MIT",
   "author": {
     "name": "Linaqruf",
@@ -16,6 +16,8 @@
     "migration",
     "model-transfer",
     "cloud-compute",
-    "ml-ops"
+    "ml-ops",
+    "parallel",
+    "sha256-verification"
   ]
 }

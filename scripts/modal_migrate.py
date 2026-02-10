@@ -399,7 +399,9 @@ def _get_hf_sha256(
             if sha:
                 sha_map[s.rfilename] = sha
         return sha_map
-    except Exception:
+    except Exception as e:
+        print(f"       WARNING: Could not fetch SHA256 hashes from HuggingFace: {e}")
+        print("       SHA256 verification will be skipped.")
         return {}
 
 
@@ -437,7 +439,9 @@ def _get_ms_sha256(
                     if sha:
                         sha_map[f.get("Path") or f.get("Name", "")] = sha
         return sha_map
-    except Exception:
+    except Exception as e:
+        print(f"       WARNING: Could not fetch SHA256 hashes from ModelScope: {e}")
+        print("       SHA256 verification will be skipped.")
         return {}
 
 
@@ -503,6 +507,7 @@ def _verify_ms_upload(
         # SHA256 verification if source hashes are provided
         if source_sha256:
             matched = 0
+            skipped = 0
             mismatched = []
             missing = []
             for path, src_sha in source_sha256.items():
@@ -517,9 +522,10 @@ def _verify_ms_upload(
                 elif src_sha and dst_sha and src_sha != dst_sha:
                     mismatched.append(path)
                 else:
-                    matched += 1  # no hash to compare, count as OK
+                    skipped += 1  # one or both hashes missing, cannot verify
 
             result["sha256_matched"] = matched
+            result["sha256_skipped"] = skipped
             result["sha256_mismatched"] = mismatched
             result["sha256_missing"] = missing
             result["verified"] = len(mismatched) == 0 and len(missing) == 0
@@ -623,6 +629,8 @@ def _print_verification(verify: dict) -> None:
         print(f"    Dest size:   {verify['dest_size']}")
     if "sha256_matched" in verify:
         print(f"    SHA256:      {verify['sha256_matched']} matched", end="")
+        if verify.get("sha256_skipped"):
+            print(f", {verify['sha256_skipped']} skipped (no hash)", end="")
         if verify.get("sha256_mismatched"):
             print(f", {len(verify['sha256_mismatched'])} MISMATCHED")
             for p in verify["sha256_mismatched"][:5]:
@@ -638,7 +646,8 @@ def _print_verification(verify: dict) -> None:
         elif "verified" in verify:
             print("    Status:      FAILED")
     if "verify_error" in verify:
-        print(f"    (Could not verify destination: {verify['verify_error']})")
+        print(f"    WARNING: Verification failed: {verify['verify_error']}")
+        print("    Data integrity could not be confirmed.")
 
 
 def _estimate_duration(size_bytes: int) -> str:
@@ -1219,14 +1228,13 @@ def migrate_hf_to_ms(
                 error_parts.append(str(cause))
             full_error = " ".join(error_parts)
             error_type = type(dl_err).__name__
-            # HF returns 403 Forbidden when storage-locked, but may also
-            # mask it as 404 "Repository Not Found" for private repos,
-            # or wrap 403 in LocalEntryNotFoundError. In all these cases,
-            # git clone still works as a bypass.
+            # HF returns 403 Forbidden when storage-locked. Git clone
+            # bypasses this because git-based access is always available.
+            # Do NOT fall back on 404/RepositoryNotFoundError — those mean
+            # the repo genuinely doesn't exist and git clone would also fail.
             is_access_blocked = (
                 "403" in full_error or "Forbidden" in full_error
-                or "404" in full_error or "Not Found" in full_error
-                or error_type in ("RepositoryNotFoundError", "LocalEntryNotFoundError")
+                or error_type == "LocalEntryNotFoundError"
             )
             if is_access_blocked:
                 print(f"       API blocked ({error_type}), falling back to git clone...")
@@ -1283,9 +1291,9 @@ def migrate_hf_to_ms(
         import traceback
         total_time = _time.time() - start
         tb = traceback.format_exc()
-        # Redact token from tracebacks
-        tb = tb.replace(hf_token, "***")
-        error_str = str(e).replace(hf_token, "***")
+        # Redact tokens from tracebacks
+        tb = tb.replace(hf_token, "***").replace(ms_token, "***")
+        error_str = str(e).replace(hf_token, "***").replace(ms_token, "***")
         print(f"ERROR after {_format_duration(total_time)}: {error_str}")
         print(f"Traceback:\n{tb}")
         return {
@@ -1390,9 +1398,9 @@ def migrate_hf_to_ms_git(
         import traceback
         total_time = _time.time() - start
         tb = traceback.format_exc()
-        # Redact token from tracebacks
-        tb = tb.replace(hf_token, "***")
-        error_str = str(e).replace(hf_token, "***")
+        # Redact tokens from tracebacks
+        tb = tb.replace(hf_token, "***").replace(ms_token, "***")
+        error_str = str(e).replace(hf_token, "***").replace(ms_token, "***")
         print(f"ERROR after {_format_duration(total_time)}: {error_str}")
         print(f"Traceback:\n{tb}")
         return {
@@ -1511,11 +1519,14 @@ def migrate_ms_to_hf(
         import traceback
         total_time = _time.time() - start
         tb = traceback.format_exc()
-        print(f"ERROR after {_format_duration(total_time)}: {e}")
+        # Redact tokens from tracebacks
+        tb = tb.replace(hf_token, "***").replace(ms_token, "***")
+        error_str = str(e).replace(hf_token, "***").replace(ms_token, "***")
+        print(f"ERROR after {_format_duration(total_time)}: {error_str}")
         print(f"Traceback:\n{tb}")
         return {
             "status": "error",
-            "error": str(e),
+            "error": error_str,
             "traceback": tb,
             "duration": _format_duration(total_time),
         }

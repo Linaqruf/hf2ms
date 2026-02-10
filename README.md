@@ -1,22 +1,37 @@
-# HF2MS
+# hf2ms
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Modal](https://img.shields.io/badge/Modal-serverless-green.svg)](https://modal.com)
 
-Migrate repos between HuggingFace and ModelScope using [Modal](https://modal.com) as cloud compute. No files touch your local machine — everything transfers cloud-to-cloud.
+Cloud-to-cloud ML repo migration via [Modal](https://modal.com). Transfer models and datasets between HuggingFace and ModelScope without downloading anything locally.
 
 ## How It Works
 
+Your machine sends the command. Modal containers do all the work.
+
 ```
-Your Machine                    Modal Container                    Platforms
-┌──────────┐    modal run    ┌─────────────────┐    API calls    ┌──────────┐
-│ Terminal  │ ──────────────> │ snapshot_download│ <────────────> │ HF Hub   │
-│ or Claude │                │ upload_folder    │ <────────────> │ MS Hub   │
-└──────────┘                 └─────────────────┘                 └──────────┘
+Your Machine              Modal Container (ephemeral)              Platforms
+┌──────────┐  modal run  ┌──────────────────────────┐  API calls  ┌──────────┐
+│ Terminal  │ ─────────> │                          │ <─────────> │ HF Hub   │
+│ or Claude │            │  Download from source    │             └──────────┘
+│ Code      │            │  Upload to destination   │  API calls  ┌──────────┐
+└──────────┘             │  Verify SHA256 hashes    │ <─────────> │ MS Hub   │
+                         └──────────────────────────┘             └──────────┘
+                              ↕ spins up, transfers, shuts down
 ```
 
-Modal spins up an ephemeral container, downloads from the source platform, uploads to the destination, and shuts down. Your machine just sends the command.
+No files touch your machine. Modal provisions a container, downloads from the source platform's API, uploads to the destination, verifies SHA256 integrity, and destroys the container. For large repos, it fans out to up to 100 parallel containers.
+
+## Features
+
+- **Zero local storage** — everything transfers cloud-to-cloud on Modal containers
+- **Parallel chunked migration** — splits large repos across up to 100 containers for TB-scale transfers
+- **SHA256 verification** — LFS file hashes checked after upload (skips platform-generated files)
+- **Auto git fallback** — if the Hub API fails (403, storage lock), seamlessly retries via `git clone` + `git lfs pull`
+- **Visibility preservation** — private repos stay private on the destination
+- **Fire & forget** — detached mode lets migrations continue after you disconnect
+- **Bidirectional** — HuggingFace → ModelScope and ModelScope → HuggingFace
 
 ## Quick Start
 
@@ -31,7 +46,7 @@ modal token new
 
 ```bash
 cp .env.example .env
-# Fill in your tokens, then load them:
+# Fill in your tokens, then:
 
 # bash/zsh
 export $(cat .env | xargs)
@@ -76,29 +91,37 @@ modal run scripts/modal_migrate.py::main --source "damo/text-to-video" --to hf -
 # Custom destination name
 modal run scripts/modal_migrate.py::main --source "username/my-model" --to ms --dest "OrgName/model-v2"
 
-# Platform prefix instead of --to flag
-modal run scripts/modal_migrate.py::main --source "hf:username/my-model" --to ms
-
 # Dataset
 modal run scripts/modal_migrate.py::main --source "username/my-dataset" --to ms --repo-type dataset
 ```
 
 > **Windows**: Prefix commands with `PYTHONIOENCODING=utf-8` to avoid Unicode errors from Modal CLI.
 
-### Batch (Parallel Containers)
+### Parallel Mode (Large Repos)
 
-Each repo gets its own Modal container and runs in parallel via `starmap()`. Repos that already exist on the destination are automatically skipped.
+For repos over ~10 GB, parallel mode splits the transfer across multiple containers. Each container clones the repo structure, downloads only its assigned files, and uploads them independently.
 
 ```bash
-# Batch migrate models
+# Parallel with default 20 GB chunks
+modal run scripts/modal_migrate.py::main --source "org/large-dataset" --to ms --parallel
+
+# Custom chunk size (in GB)
+modal run scripts/modal_migrate.py::main --source "org/large-dataset" --to ms --parallel --chunk-size 30
+
+# Parallel dataset
+modal run scripts/modal_migrate.py::main --source "org/my-dataset" --to ms --repo-type dataset --parallel
+```
+
+Chunk size auto-adjusts upward if the repo would exceed 100 containers. Parallel mode is currently HuggingFace → ModelScope only.
+
+### Batch (Multiple Repos)
+
+Each repo gets its own container, running in parallel via `starmap()`. Repos that already exist on the destination are automatically skipped.
+
+```bash
 modal run scripts/modal_migrate.py::batch \
   --source "user/model1,user/model2,user/model3" \
   --to ms --repo-type model
-
-# Batch migrate datasets
-modal run scripts/modal_migrate.py::batch \
-  --source "user/dataset1,user/dataset2" \
-  --to ms --repo-type dataset
 ```
 
 ### Detached Mode (Fire & Forget)
@@ -106,14 +129,8 @@ modal run scripts/modal_migrate.py::batch \
 Add `--detach` before the script path. The migration continues in Modal's cloud even after you close your terminal:
 
 ```bash
-# Single — detached
 modal run --detach scripts/modal_migrate.py::main \
   --source "username/my-model" --to ms
-
-# Batch — detached
-modal run --detach scripts/modal_migrate.py::batch \
-  --source "user/model1,user/model2,user/model3" \
-  --to ms --repo-type model
 ```
 
 Monitor detached runs:
@@ -136,6 +153,9 @@ Or check the [Modal dashboard](https://modal.com/apps).
 | `--to` | Destination: `hf` or `ms` | Yes* |
 | `--repo-type` | `model`, `dataset`, or `space` (auto-detects if omitted) | No |
 | `--dest` | Custom destination repo ID | No |
+| `--parallel` | Use parallel chunked migration (multiple containers) | No |
+| `--chunk-size` | Chunk size in GB for parallel mode (default: 20) | No |
+| `--use-git` | Force git clone instead of Hub API for download | No |
 
 \*Not required if source has a platform prefix.
 
@@ -146,6 +166,7 @@ Or check the [Modal dashboard](https://modal.com/apps).
 | `--source` | Comma-separated repo IDs | Yes |
 | `--to` | Destination: `hf` or `ms` | Yes |
 | `--repo-type` | `model`, `dataset`, or `space` (default: `model`) | No |
+| `--use-git` | Force git clone for all repos | No |
 
 ## Supported Repo Types
 
@@ -155,11 +176,17 @@ Or check the [Modal dashboard](https://modal.com/apps).
 | Datasets | Yes | Yes |
 | Spaces | Skipped (warning) | N/A |
 
-Spaces to ModelScope are skipped because ModelScope Studios (their Spaces equivalent) can only be created via the web UI — the SDK has no support. To force-migrate space files as a model repo, use `--repo-type model`.
+Spaces to ModelScope are skipped because ModelScope Studios can only be created via the web UI — the SDK has no support. To force-migrate space files as a model repo, use `--repo-type model`.
+
+## How the Git Fallback Works
+
+When `snapshot_download()` fails — 403 from storage-locked orgs or access errors wrapped in `LocalEntryNotFoundError` — hf2ms automatically retries using raw `git clone --depth=1` + `git lfs pull`. This bypasses Hub API restrictions because git-based access is always available. The fallback is seamless: same result, no user intervention needed. (404s for genuinely missing repos are not retried.)
+
+You can also force git mode with `--use-git` for any migration.
 
 ## Claude Code Plugin
 
-This repo is also a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins). Install it and use natural language:
+This repo is a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins). Install it and use natural language:
 
 ```
 > migrate username/my-model to ModelScope
@@ -167,23 +194,45 @@ This repo is also a [Claude Code plugin](https://docs.anthropic.com/en/docs/clau
 > batch migrate my models to ModelScope
 ```
 
-Or use the `/migrate` slash command for a guided workflow with token validation, destination confirmation, and detached mode option:
+Or use the `/migrate` slash command for a guided workflow with token validation, destination confirmation, and run mode selection:
 
 ```
 > /migrate username/my-model --to ms
 > /migrate username/my-dataset --to ms --type dataset --detach
+> /migrate username/my-model --to ms --parallel
 ```
 
-## Project Structure
+## Benchmarks
 
-```
-.claude-plugin/plugin.json    Plugin manifest
-commands/migrate.md           /migrate slash command
-skills/migrate/SKILL.md       Natural language migration skill
-scripts/modal_migrate.py      Modal app (5 remote functions + 2 entrypoints)
-scripts/validate_tokens.py    Token validation utility
-scripts/utils.py              Shared helpers (repo parsing, direction detection)
-```
+All migrations are cloud-to-cloud via Modal. No local disk involved.
+
+### Parallel Mode (chunked, multiple containers)
+
+| Size | Files | Chunks | Duration |
+|------|-------|--------|----------|
+| 8.5 GB | 21 | 3 | 5m 50s |
+| 156 GB | 1,048 | 11 | 46m 16s |
+| 175 GB | 39 | 11 | 28m 49s |
+| 392 GB | 59 | 32 | 1h 15m |
+| 613 GB | 122 | 41 | 58m 4s |
+| 898 GB | 184 | 60 | 53m 3s |
+| 1.0 TB | 150 | 85 | 1h 1m |
+| 3.3 TB | 678 | 113 | 2h 0m |
+
+### Single Container
+
+| Size | Files | Duration | Notes |
+|------|-------|----------|-------|
+| 163 MB | — | 18.2s | model, MS→HF |
+| 2.2 GB | 7 | 14m 11s | dataset |
+| 15.6 GB | 67 | 7m 30s | model |
+| 58.5 GB | 16 | 19m 48s | dataset |
+
+### Batch Mode (one container per repo)
+
+| Repos | Total Size | Duration |
+|-------|------------|----------|
+| 17 models | ~189 GB | 43m 44s |
 
 ## Troubleshooting
 
@@ -192,21 +241,32 @@ scripts/utils.py              Shared helpers (repo parsing, direction detection)
 | Token errors | `python scripts/validate_tokens.py` |
 | Modal errors | `modal token verify` |
 | Repo not found | Check the repo ID on the source platform |
-| Timeout on large repos | Specify `--repo-type` to skip auto-detect |
+| 403 / storage locked | Automatic: falls back to git clone. Or use `--use-git` |
+| Timeout on large repos | Use `--parallel` to split across containers |
 | ModelScope upload fails | Check `MODELSCOPE_TOKEN` write permissions |
 | Unicode errors (Windows) | Prefix with `PYTHONIOENCODING=utf-8` |
+| SHA256 mismatch | Re-run the migration (network issue during upload) |
 
-## Benchmarks
+## Project Structure
 
-Tested migrations (all cloud-to-cloud, no local disk):
+```
+scripts/
+  modal_migrate.py        Modal app (remote functions + local entrypoints)
+  validate_tokens.py      Token validation utility
+  utils.py                Shared helpers (repo parsing, direction detection)
 
-| Scenario | Size | Duration |
-|----------|------|----------|
-| Single model HF→MS | 15.6 GB (67 files) | 7m 30s |
-| Single model MS→HF | 163 MB | 18.2s |
-| Single dataset HF→MS | 2.2 GB (7 files) | 14m 11s |
-| Batch models (17 repos) | ~189 GB | 43m 44s |
-| Batch datasets (largest) | 58.5 GB (16 files) | 19m 48s |
+.claude-plugin/
+  plugin.json             Claude Code plugin manifest
+
+commands/
+  migrate.md              /migrate slash command
+
+skills/migrate/
+  SKILL.md                          Natural language migration skill
+  references/
+    hub-api-reference.md            HuggingFace & ModelScope SDK reference
+    verification-and-cleanup.md     Post-migration verification guide
+```
 
 ## License
 

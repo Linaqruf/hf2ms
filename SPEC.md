@@ -19,20 +19,33 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 
 ### Success Criteria
 - [x] Migrate a model repo from HF to ModelScope without any files touching the local machine
-- [x] Migrate in reverse (ModelScope to HF) with the same command — tested: furina-xl-lora 163 MB, 18.2s
+- [x] Migrate in reverse (ModelScope to HF) with the same command — tested: 163 MB model, 18.2s
 - [x] Support all three HF repo types: models, datasets, spaces
 - [x] Complete a typical model migration (~5GB) in under 10 minutes wall-clock time
 - [x] Batch migrate multiple repos in parallel (17 models + 3 datasets = 20 repos migrated)
+- [x] Parallel chunked migration for TB-scale repos (up to 100 containers) — tested: 3.3 TB, 113 chunks
+- [x] SHA256 verification of every LFS file after upload
+- [x] Auto-fallback from Hub API to git clone when API is blocked (403, storage lock)
+- [x] Visibility preservation — private repos stay private on destination
 
 > **Test results**:
-> - Single model HF→MS: hitokomoru-diffusion-v2 — 67 files, 15.6 GB, 7m30s
-> - Single model MS→HF: furina-xl-lora — 163 MB, 18.2s (detached)
-> - Single model HF→MS detached: furina-xl-lora — 163 MB, 9.2s
-> - Single dataset: proseka-card-list — 7 files, 2.2 GB, 14m11s
+> - Single model HF→MS: 67 files, 15.6 GB, 7m30s
+> - Single model MS→HF: 163 MB, 18.2s (detached)
+> - Single model HF→MS detached: 163 MB, 9.2s
+> - Single dataset: 7 files, 2.2 GB, 14m11s
 > - Batch models: 17 models, ~189 GB, 43m44s (parallel containers)
-> - Batch datasets: pixiv-niji-journey — 16 files, 58.5 GB, 19m48s; bandori-card-dataset — 3 files, 2.3 GB (migrated separately)
+> - Batch datasets: 16 files, 58.5 GB, 19m48s; 3 files, 2.3 GB (migrated separately)
+> - Parallel chunked: 21 files, 8.5 GB, 3 chunks, 5m50s
+> - Parallel chunked: 1,048 files, 156 GB, 11 chunks, 46m16s (SHA256: 1047/1047 verified)
+> - Parallel chunked: 39 files, 175 GB, 11 chunks, 28m49s (SHA256: 39/39 verified)
+> - Parallel chunked: 59 files, 392 GB, 32 chunks, 1h15m (SHA256: 59/59 verified)
+> - Parallel chunked: 122 files, 613 GB, 41 chunks, 58m4s (SHA256: 122/122 verified)
+> - Parallel chunked: 184 files, 898 GB, 60 chunks, 53m3s (SHA256: 184/184 verified)
+> - Parallel chunked: 150 files, 1.0 TB, 85 chunks, 1h1m (SHA256: 149/149 verified)
+> - Parallel chunked: 678 files, 3.3 TB, 113 chunks, 2h0m (SHA256: 673/673 verified)
 > - Space migration: skipped to MS with warning (ModelScope Studios are web/git only)
 > - Error cases: nonexistent repo gives clean error; all token validations pass
+> - Git fallback: automatically triggered when HF API returns 403 (storage-locked org)
 
 ---
 
@@ -59,7 +72,7 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Creates the target HuggingFace repo if it doesn't exist
 - [x] Transfers all files via Modal container
 - [x] Reports progress and outputs destination URL
-- [x] End-to-end tested (furina-xl-lora MS→HF, 163 MB, 18.2s detached)
+- [x] End-to-end tested (MS→HF, 163 MB model, 18.2s detached)
 
 #### Feature 3: Credential Validation
 **Description**: Verify all three platform tokens before starting migration.
@@ -111,13 +124,17 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 ### Future Scope (Post-MVP)
 1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 20 repos, ~252 GB.
 2. ~~Destination existence check~~ — **Done.** Single mode warns, batch mode auto-skips existing repos.
-3. Programmatic spawn/poll pattern — Use `.spawn()` + `FunctionCall.from_id()` for async status checks within Claude (requires `modal deploy`)
-4. Model format conversion during migration (e.g., safetensors to GGUF)
-5. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
-6. Persistent Modal Volume for caching frequently transferred repos
-7. Bidirectional sync (keep repos in sync automatically)
-8. Dry-run mode (show what would be transferred without doing it)
-9. `--force` flag to overwrite existing destination repos in batch mode
+3. ~~Parallel chunked migration~~ — **Done.** `--parallel` flag splits repo into chunks across up to 100 containers. Auto-adjusts chunk size. Tested: 3.3 TB, 113 chunks.
+4. ~~SHA256 verification~~ — **Done.** Per-file SHA256 comparison between source and destination after upload. Uses HF `files_metadata=True` and MS `get_dataset_files`/`get_model_files` APIs.
+5. ~~Auto git fallback~~ — **Done.** `snapshot_download()` fails (403)? Automatically retries via `git clone --depth=1` + `git lfs pull`. Bypasses HF storage lockout.
+6. ~~Visibility preservation~~ — **Done.** Detects source visibility, creates destination with matching privacy setting.
+7. Programmatic spawn/poll pattern — Use `.spawn()` + `FunctionCall.from_id()` for async status checks within Claude (requires `modal deploy`)
+8. Model format conversion during migration (e.g., safetensors to GGUF)
+9. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
+10. Persistent Modal Volume for caching frequently transferred repos
+11. Bidirectional sync (keep repos in sync automatically)
+12. Dry-run mode (show what would be transferred without doing it)
+13. `--force` flag to overwrite existing destination repos in batch mode
 
 ### Out of Scope
 - Model format conversion or quantization
@@ -259,9 +276,10 @@ Same flow, reversed source/destination SDKs
 **Edge cases**:
 - Source repo doesn't exist → if auto-detecting type, `detect_repo_type` raises error on Modal container; if type is explicit, fails during `snapshot_download`
 - Destination repo already exists → single mode warns and proceeds (updates files); batch mode skips existing repos
-- Large repo (>50GB) → warn user about potential timeout, suggest `allow_patterns` filter in future
-- Private source repo → works if token has read access
-- Rate limit hit → migration fails with error message; no automatic retries
+- Large repo (>50GB) → use `--parallel` to split across containers; tested up to 3.3 TB (113 chunks)
+- Private source repo → works if token has read access; visibility preserved on destination
+- API blocked (403 storage lock) → auto-fallback to git clone + git lfs pull
+- Rate limit hit → migration fails with error message; chunk workers retry upload 3 times with exponential backoff
 
 ---
 
@@ -294,7 +312,8 @@ hf2ms/
 │   └── migrate/
 │       ├── SKILL.md            # Migration skill (triggers on natural language)
 │       └── references/
-│           └── hub-api-reference.md  # HuggingFace & ModelScope SDK reference
+│           ├── hub-api-reference.md  # HuggingFace & ModelScope SDK reference
+│           └── verification-and-cleanup.md  # Post-migration verification guide
 │
 ├── scripts/
 │   ├── modal_migrate.py        # Modal app: migration functions
@@ -310,11 +329,13 @@ hf2ms/
 
 ### Modal Container Image
 
-Minimal Python image with only the required SDKs:
+Minimal Python image with only the required SDKs + git for fallback:
 
 ```python
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .apt_install("git", "git-lfs")
+    .run_commands("git lfs install")
     .pip_install(
         "huggingface_hub",
         "modelscope",
@@ -322,7 +343,7 @@ image = (
 )
 ```
 
-No torch, no transformers — just the hub clients. This keeps cold start fast (~10-15s).
+No torch, no transformers — just the hub clients and git-lfs. This keeps cold start fast (~10-15s).
 
 ### Local Entrypoint (CLI Orchestration)
 
@@ -354,12 +375,27 @@ modal app stop hf-ms-migrate    # cancel a running migration
 
 ### Remote Functions
 
-Five Modal functions run in the cloud container:
+Modal functions run in cloud containers (10 remote + 2 local entrypoints):
+
+**Utility functions:**
 - `hello_world` — smoke test (60s timeout)
-- `check_repo_exists` — check if a repo exists on HF or MS (120s timeout); catches only `RepositoryNotFoundError` for HF, lets other errors propagate
-- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout); HF: catches only 404s, surfaces auth/network errors; MS: checks model then dataset, surfaces non-404 errors
-- `migrate_hf_to_ms` — HF→MS transfer (3600s timeout, uses `create_model`/`create_dataset` + `upload_folder`); includes full traceback on error
-- `migrate_ms_to_hf` — MS→HF transfer (3600s timeout, uses `create_repo` + `upload_folder`); passes `repo_type` to MS download
+- `check_repo_exists` — check if a repo exists on HF or MS (120s timeout)
+- `detect_repo_type` — auto-detect model/dataset/space via API (120s timeout)
+
+**Single-container migration:**
+- `migrate_hf_to_ms` — HF→MS transfer (86400s timeout); tries Hub API first, auto-falls back to git clone on 403
+- `migrate_hf_to_ms_git` — HF→MS transfer via git clone only (86400s timeout); for forced git mode
+- `migrate_ms_to_hf` — MS→HF transfer (86400s timeout); sanitizes README.md YAML for HF compatibility
+
+**Parallel chunked migration:**
+- `_list_hf_files` — clone repo structure (no LFS), build file manifest with sizes + SHA256 (600s timeout)
+- `_migrate_chunk` — download + upload one chunk; max 100 containers (86400s timeout)
+- `_ensure_ms_repo_remote` — create MS repo from local entrypoint (120s timeout)
+- `_verify_parallel_upload` — SHA256 verify all files after chunked upload (600s timeout)
+
+**Local entrypoints:**
+- `main` — single-repo migration with optional `--parallel` mode
+- `batch` — multi-repo migration via `starmap()`
 
 **Important**: Utils imports (`from utils import ...`) must be lazy (inside `main()`) because Modal only auto-mounts the entrypoint file. The remote functions don't use utils.
 
@@ -375,22 +411,23 @@ modal run scripts/modal_migrate.py::batch \
 
 - Each repo gets its own container (download + upload happen independently)
 - Pre-checks destination repos in parallel; skips any that already exist
+- Detects source visibility per-repo; preserves on destination
 - Results stream back as each container completes
 - Summary printed at the end with success/fail/skipped counts
-- Tested: 17 models (~189 GB) in 43m44s; 3 datasets (~63 GB) including 58.5 GB pixiv-niji-journey in 19m48s
+- Tested: 17 models (~189 GB) in 43m44s; 3 datasets (~63 GB) including 58.5 GB dataset in 19m48s
 
 ### Plugin Manifest (.claude-plugin/plugin.json)
 
 ```json
 {
-  "name": "hf-modal-modelscope",
-  "version": "1.0.0",
-  "description": "Migrate repos between HuggingFace and ModelScope via Modal — no local downloads. Supports models, datasets, and spaces with cloud-to-cloud transfer.",
+  "name": "hf2ms",
+  "version": "1.4.0",
+  "description": "Cloud-to-cloud ML repo migration via Modal. Transfer models and datasets between HuggingFace and ModelScope with parallel chunked transfers (up to 100 containers), SHA256 verification, and automatic git fallback. No local downloads.",
   "license": "MIT",
   "author": { "name": "Linaqruf", "url": "https://github.com/Linaqruf" },
   "repository": "https://github.com/Linaqruf/hf2ms",
   "homepage": "https://github.com/Linaqruf/hf2ms",
-  "keywords": ["huggingface", "modelscope", "modal", "migration", "model-transfer", "cloud-compute", "ml-ops"]
+  "keywords": ["huggingface", "modelscope", "modal", "migration", "model-transfer", "cloud-compute", "ml-ops", "parallel", "sha256-verification"]
 }
 ```
 
@@ -409,7 +446,7 @@ The skill should trigger on:
 ### Slash Command: `/migrate`
 
 ```
-/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach]
+/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach] [--parallel]
 ```
 
 Examples:
@@ -417,6 +454,7 @@ Examples:
 - `/migrate damo/text-to-video --to hf --type model`
 - `/migrate username/my-dataset --to ms --type dataset`
 - `/migrate username/my-model --to ms --detach` (fire & forget)
+- `/migrate org/large-dataset --to ms --type dataset --parallel` (chunked parallel)
 
 ---
 
@@ -429,8 +467,10 @@ Examples:
 | Source repo not found | HF/MS API returns 404 | Print "Repo not found" + suggest checking the ID |
 | Auth/network error in detect | Non-404 exception from API | Surface via `RuntimeError` with original error (not masked as "not found") |
 | Destination repo creation fails | API error on create_repo | Print error + suggest checking namespace/permissions |
-| Download timeout | Modal function times out (>3600s) | Print "Repo too large for single transfer" + suggest filtering |
-| Upload failure mid-transfer | API error during upload | Print error + remote traceback displayed to user |
+| Download timeout | Modal function times out (>86400s) | Use `--parallel` to split across containers |
+| Upload failure mid-transfer | API error during upload | Print error + remote traceback; chunk workers retry 3x with backoff |
+| API blocked (403) | HF returns 403 Forbidden (storage lock) | Auto-fallback to git clone + git lfs pull |
+| SHA256 mismatch | Post-upload verification detects hash difference | Report mismatched files; re-run migration |
 | Modal cold start fails | Modal container build fails | Print error + suggest checking Modal account/quota |
 | Network error | Connection timeout/reset | Migration fails with error + full traceback; no automatic retries |
 | Batch auth failure | Pre-check starmap fails with auth error | Abort entire batch (don't proceed blindly) |
@@ -456,10 +496,10 @@ Examples:
 - [x] Add repo type auto-detection (`detect_repo_type` remote function)
 - [x] Add destination repo auto-creation (create_model/create_dataset on MS, create_repo exist_ok on HF)
 - [x] Add `@app.local_entrypoint()` for CLI orchestration (reads env tokens, parses args, calls remote)
-- [x] Test with a model repo (hitokomoru-diffusion-v2: 67 files, 15.6 GB, 7m30s)
-- [x] Test with a dataset repo (proseka-card-list: 7 files, 2.2 GB, 14m11s)
+- [x] Test with a model repo (67 files, 15.6 GB, 7m30s)
+- [x] Test with a dataset repo (7 files, 2.2 GB, 14m11s)
 - [x] Batch migration — models (17 repos, ~189 GB, 43m44s with parallel containers)
-- [x] Batch migration — datasets (pixiv-niji-journey: 16 files, 58.5 GB, 19m48s; bandori-card-dataset: migrated separately)
+- [x] Batch migration — datasets (16 files, 58.5 GB, 19m48s; 3 files, 2.3 GB migrated separately)
 
 ### Phase 3: Plugin Integration
 **Depends on**: Phase 2 (migration functions must work)
@@ -474,11 +514,11 @@ Examples:
 **Depends on**: Phase 3 (plugin must be functional end-to-end)
 - [x] Add progress reporting (file count, size, download/upload timing, total duration)
 - [x] Add error handling (try/except with contextual troubleshooting suggestions)
-- [x] Test with larger repos (15.6 GB model — hitokomoru-diffusion-v2)
+- [x] Test with larger repos (15.6 GB model)
 - [x] Test batch migration — models (17 repos, ~189 GB, 43m44s)
 - [x] Test batch migration — datasets (3 repos, ~63 GB)
 - [x] Test all repo types (model done, dataset done, space — skipped to MS with warning; ModelScope Studios are web/git only)
-- [x] Test both directions (HF→MS done, MS→HF done — furina-xl-lora 163 MB, 18.2s)
+- [x] Test both directions (HF→MS done, MS→HF done — 163 MB model, 18.2s)
 - [x] Test error cases (nonexistent repo: clean error "Repo not found on HuggingFace as model, dataset, or space")
 - [x] Write README with setup instructions
 
@@ -490,7 +530,7 @@ Examples:
 - [x] Update migration skill (`SKILL.md`) to mention detached mode
 - [x] Update `CLAUDE.md` with `--detach` usage
 - [x] Update `README.md` with detached mode documentation
-- [x] Test single migration with `--detach` — HF→MS furina-xl-lora 163 MB, 9.2s detached
+- [x] Test single migration with `--detach` — HF→MS 163 MB model, 9.2s detached
 - [x] Test batch migration with `--detach` — correctly detected & skipped 2 existing repos
 
 ---
@@ -502,8 +542,8 @@ Examples:
 | 1 | ModelScope SDK version — older `modelscope` vs newer `modelhub` API? | Use `modelscope.hub.api.HubApi` — `create_model()` + `upload_folder()` (HTTP-based, no git). `push_model()` was deprecated and required git. | Affects upload implementation in Modal function | Resolved |
 | 2 | ModelScope repo naming — does namespace differ from HF? | A) Map HF username → MS username directly, B) Ask user for MS namespace | Affects auto-naming of destination repos | Resolved — same name works fine, `--dest` flag available for custom mapping |
 | 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Resolved — spaces to MS are skipped with a warning. ModelScope Studios are web/git only (SDK has `# TODO: support studio`). Users can force with `--repo-type model`. |
-| 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — 58.5 GB (pixiv-niji-journey) completed in 19m48s with no issues |
-| 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — 58.5 GB in 19m48s, well within 3600s |
+| 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — `--parallel` mode splits repos across up to 100 containers. Tested: 3.3 TB (113 chunks). Single container tested up to 58.5 GB. |
+| 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — increased to 86400s (24h). With parallel mode, individual chunks finish much faster. |
 
 ---
 
@@ -519,10 +559,38 @@ Examples:
 
 ## Project Status
 
-**All phases complete.** All features implemented, tested, and documented. All open questions resolved. All acceptance criteria met.
+**Version 1.4.0** — All phases complete plus three post-MVP features shipped.
 
-- PR #1: Fix error handling, input validation, doc accuracy from codebase review
-- PR #2: Add detached mode, README license sanitizer, space rejection, batch space guard, all tests pass
+### Changelog
+- **v1.0.0**: Core migration (Phases 1-5). Single + batch + detached mode.
+- **v1.1.0**: Auto git fallback for 403-locked orgs. Container image now includes git + git-lfs.
+- **v1.2.0**: Visibility preservation — private repos stay private on destination.
+- **v1.3.0**: Parallel chunked migration — `--parallel` flag, up to 100 containers, TB-scale repos.
+- **v1.4.0**: SHA256 verification — per-file hash comparison after upload using HF/MS APIs.
+
+### Post-MVP Features (shipped after Phase 5)
+
+#### Phase 6: Auto Git Fallback
+- [x] `migrate_hf_to_ms` tries Hub API first, falls back to `git clone --depth=1` + `git lfs pull` on 403
+- [x] Dedicated `migrate_hf_to_ms_git` for forced git mode (`--use-git` flag)
+- [x] Token redaction in git error messages and tracebacks
+- [x] Directory size monitoring thread for git LFS progress (non-TTY workaround)
+
+#### Phase 7: Parallel Chunked Migration
+- [x] `_list_hf_files` — clone structure, build file manifest with LFS sizes + SHA256 from pointers
+- [x] `_build_chunks` — next-fit decreasing: non-LFS in chunk 0, LFS sorted largest-first
+- [x] `_migrate_chunk` — independent container: clone → selective LFS pull → prune → upload (3x retry)
+- [x] Auto-adjust chunk size to cap at 100 containers
+- [x] `--parallel` and `--chunk-size` CLI flags on `main` entrypoint
+- [x] Tested: 8.5 GB/3 chunks, 156 GB/11 chunks, 175 GB/11 chunks, 392 GB/32 chunks, 613 GB/41 chunks, 898 GB/60 chunks, 1.0 TB/85 chunks, 3.3 TB/113 chunks
+
+#### Phase 8: SHA256 Verification
+- [x] `_get_hf_sha256` — query HF API `files_metadata=True` for LFS SHA256 hashes
+- [x] `_get_ms_sha256` — query MS API `get_dataset_files`/`get_model_files` (paginated) for SHA256
+- [x] `_verify_ms_upload` / `_verify_hf_upload` — per-file hash comparison, skip platform-generated files
+- [x] `_parse_lfs_pointer_full` — extract both size and SHA256 from LFS pointer files
+- [x] SHA256 passed through file manifest for parallel mode verification
+- [x] Tested: 1047/1047 matched (156 GB), 39/39 (175 GB), 59/59 (392 GB), 122/122 (613 GB), 184/184 (898 GB), 149/149 (1.0 TB), 673/673 (3.3 TB)
 
 ---
 

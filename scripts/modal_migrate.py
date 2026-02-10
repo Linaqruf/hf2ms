@@ -579,7 +579,9 @@ def _verify_hf_upload(
             # SHA256 verification if source hashes provided
             if source_sha256:
                 dest_sha_map = {}
+                dest_all_paths = set()
                 for s in siblings:
+                    dest_all_paths.add(s.rfilename)
                     sha = None
                     if s.lfs and isinstance(s.lfs, dict):
                         sha = s.lfs.get("sha256")
@@ -589,20 +591,25 @@ def _verify_hf_upload(
                         dest_sha_map[s.rfilename] = sha
 
                 matched = 0
+                skipped = 0
                 mismatched = []
                 missing = []
                 for path, src_sha in source_sha256.items():
                     if path in PLATFORM_FILES:
                         continue
-                    if path not in dest_sha_map:
+                    if path not in dest_all_paths:
                         missing.append(path)
                         continue
-                    if src_sha == dest_sha_map[path]:
+                    dst_sha = dest_sha_map.get(path, "")
+                    if src_sha and dst_sha and src_sha == dst_sha:
                         matched += 1
-                    else:
+                    elif src_sha and dst_sha and src_sha != dst_sha:
                         mismatched.append(path)
+                    else:
+                        skipped += 1  # file exists but one or both hashes missing
 
                 result["sha256_matched"] = matched
+                result["sha256_skipped"] = skipped
                 result["sha256_mismatched"] = mismatched
                 result["sha256_missing"] = missing
                 result["verified"] = len(mismatched) == 0 and len(missing) == 0
@@ -1895,9 +1902,14 @@ def main(
 
     except Exception as e:
         import traceback
+        tb = traceback.format_exc()
+        # Redact tokens if they were loaded before the error
+        for _tok in [locals().get("hf_token"), locals().get("ms_token")]:
+            if _tok:
+                tb = tb.replace(_tok, "***")
         print()
         print(f"Unexpected error: {e}")
-        print(traceback.format_exc())
+        print(tb)
         print("If this persists, check:")
         print("  - Modal account: modal token verify")
         print("  - Platform tokens: python scripts/validate_tokens.py")
@@ -1978,8 +1990,10 @@ def batch(
             check_args.append((repo_id, dst_plat, repo_type, dest_token, ms_domain))
 
         existing = set()
+        checked_count = 0
         try:
             for i, exists in enumerate(check_repo_exists.starmap(check_args)):
+                checked_count += 1
                 repo_id = jobs[i][0]
                 if exists:
                     existing.add(repo_id)
@@ -1990,7 +2004,9 @@ def batch(
                 print(f"  ERROR: Pre-check failed due to authentication issue: {e}")
                 print("  Cannot proceed without valid credentials. Aborting batch.")
                 return
-            print(f"  WARNING: Pre-check failed ({e}). Proceeding without skipping existing repos.")
+            unchecked = len(jobs) - checked_count
+            print(f"  WARNING: Pre-check failed after {checked_count}/{len(jobs)} repos ({e}).")
+            print(f"  {unchecked} unchecked repo(s) will NOT be skipped even if they already exist.")
 
         if existing:
             print(f"  Skipping {len(existing)} existing repo(s)")
@@ -2096,7 +2112,12 @@ def batch(
             except Exception as e:
                 completed_ids = {r[0] for r in results}
                 in_flight = [a[0] for a in args if a[0] not in completed_ids]
-                print(f"\n  BATCH ERROR ({label}): {e}")
+                err_msg = str(e)
+                if hf_token:
+                    err_msg = err_msg.replace(hf_token, "***")
+                if ms_token:
+                    err_msg = err_msg.replace(ms_token, "***")
+                print(f"\n  BATCH ERROR ({label}): {err_msg}")
                 print(f"  {len(results)} repos completed before failure.")
                 if in_flight:
                     print(f"  Status unknown for: {', '.join(in_flight)}")
@@ -2133,9 +2154,14 @@ def batch(
 
     except Exception as e:
         import traceback
+        tb = traceback.format_exc()
+        # Redact tokens if they were loaded before the error
+        for _tok in [locals().get("hf_token"), locals().get("ms_token")]:
+            if _tok:
+                tb = tb.replace(_tok, "***")
         print()
         print(f"Unexpected error: {e}")
-        print(traceback.format_exc())
+        print(tb)
         print("If this persists, check:")
         print("  - Modal account: modal token verify")
         print("  - Platform tokens: python scripts/validate_tokens.py")

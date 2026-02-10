@@ -143,7 +143,7 @@ The `/migrate` command infers direction from natural language (e.g., "to ModelSc
 - **403 Forbidden (storage limit lockout)**: Auto-detected and handled. The script falls back to `git clone` + `git lfs pull`, which bypasses HuggingFace's API lockout on orgs exceeding private storage limits.
 - **Spaces to ModelScope**: Skipped with a warning. ModelScope Studios are web/git only — the SDK has no support. To force migration as a model repo, use `--repo-type model`.
 - **Large repos (>50GB)**: Use `--parallel` to split across up to 100 containers. The Modal function timeout is 86400s (24 hours). Tested up to 58.5 GB single-container and 3.3 TB parallel (113 chunks).
-- **Very large repos (>1TB)**: Use `--parallel`. Chunk size auto-adjusts to keep within 100 containers (e.g., 3.3 TB -> ~30 GB chunks -> 113 containers). Consider `--chunk-size 50` or higher to reduce git clone overhead.
+- **Very large repos (>1TB)**: Use `--parallel`. Chunk size auto-adjusts to keep within 100 chunks (e.g., 3.3 TB -> ~30 GB chunks -> 113 chunks, processed in waves of up to 100 concurrent containers). Consider `--chunk-size 50` or higher to reduce git clone overhead.
 - **Repos with millions of files**: Each parallel chunk re-clones the full tree structure. For repos with >500K files, the script warns and suggests larger chunk sizes to reduce this overhead.
 - **ModelScope namespace**: Defaults to same as source. Destination namespace must already exist on ModelScope or match the authenticated user.
 - **ModelScope private repo listing**: ModelScope's API does not list private repos via `list_models`/`list_datasets`. To check if a private repo exists, use `api.repo_exists(repo_id=..., repo_type=..., token=...)` per-repo instead.

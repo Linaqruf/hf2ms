@@ -381,10 +381,12 @@ def _get_hf_sha256(
 
     hf_api = HfApi(token=hf_token)
     try:
-        if repo_type == "dataset":
+        if repo_type == "space":
+            # space_info() does not support files_metadata — SHA256 unavailable
+            print("       NOTE: SHA256 verification not available for spaces (API limitation).")
+            return {}
+        elif repo_type == "dataset":
             info = hf_api.dataset_info(hf_repo_id, files_metadata=True)
-        elif repo_type == "space":
-            info = hf_api.space_info(hf_repo_id)
         else:
             info = hf_api.model_info(hf_repo_id, files_metadata=True)
 
@@ -556,10 +558,11 @@ def _verify_hf_upload(
     PLATFORM_FILES = {".gitattributes", "README.md"}
 
     try:
-        if repo_type == "dataset":
-            info = hf_api.dataset_info(hf_repo_id, files_metadata=True)
-        elif repo_type == "space":
+        if repo_type == "space":
+            # space_info() does not support files_metadata — use without LFS hashes
             info = hf_api.space_info(hf_repo_id)
+        elif repo_type == "dataset":
+            info = hf_api.dataset_info(hf_repo_id, files_metadata=True)
         else:
             info = hf_api.model_info(hf_repo_id, files_metadata=True)
 
@@ -789,7 +792,7 @@ def detect_repo_type(repo_id: str, platform: str, token: str, ms_domain: str = "
     """
     if platform == "hf":
         from huggingface_hub import HfApi
-        from huggingface_hub.utils import RepositoryNotFoundError
+        from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError
 
         api = HfApi(token=token)
         last_error = None
@@ -800,6 +803,8 @@ def detect_repo_type(repo_id: str, platform: str, token: str, ms_domain: str = "
                 return type_name
             except RepositoryNotFoundError:
                 continue
+            except GatedRepoError:
+                return type_name  # repo exists but requires access agreement
             except Exception as e:
                 last_error = e
                 continue
@@ -1671,7 +1676,10 @@ def main(
                     if source_size_bytes > 0:
                         print(f"  Source size:       {_format_size(source_size_bytes)}")
                         print(f"  Estimated time:    {_estimate_duration(source_size_bytes)}")
-            except Exception:
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(k in err_str for k in ("401", "403", "unauthorized", "forbidden", "authentication")):
+                    raise RuntimeError(f"Authentication failed querying source repo: {e}") from e
                 print("  WARNING: Could not detect source visibility, defaulting to private")
         elif src_plat == "ms":
             try:
@@ -1697,7 +1705,10 @@ def main(
                         source_size_bytes = int(ds)
                         print(f"  Source size:       {_format_size(source_size_bytes)}")
                         print(f"  Estimated time:    {_estimate_duration(source_size_bytes)}")
-            except Exception:
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(k in err_str for k in ("401", "403", "unauthorized", "forbidden", "authentication")):
+                    raise RuntimeError(f"Authentication failed querying source repo: {e}") from e
                 print("  WARNING: Could not detect source visibility, defaulting to private")
 
         # 9. Check if destination repo already exists
@@ -1803,6 +1814,7 @@ def main(
                 print("\n  Already-uploaded chunks are safe. Re-run with --parallel to retry.")
 
             # Phase 5: Verify
+            verify = None
             if succeeded:
                 print()
                 print("[5/5] Verifying upload...")
@@ -1818,7 +1830,7 @@ def main(
             url = build_url(dest_repo_id, "ms", repo_type)
 
             result = {
-                "status": "success" if not failed else "partial",
+                "status": "success" if not failed else ("error" if not succeeded else "partial"),
                 "url": url,
                 "file_count": total_uploaded_files,
                 "total_size": _format_size(total_uploaded_bytes),
@@ -1826,6 +1838,8 @@ def main(
                 "chunks_ok": len(succeeded),
                 "chunks_failed": len(failed),
             }
+            if succeeded and verify:
+                result["verification"] = verify
 
         elif src_plat == "hf" and dst_plat == "ms":
             migrate_fn = migrate_hf_to_ms_git if use_git else migrate_hf_to_ms
@@ -1872,7 +1886,10 @@ def main(
                       + (f", {result['chunks_failed']} failed" if result.get("chunks_failed") else ""))
         else:
             print("  Migration FAILED")
-            print(f"  Error:    {result.get('error', 'Unknown error')}")
+            if result.get("chunks_failed"):
+                print(f"  All {result['chunks_failed']} chunk(s) failed")
+            else:
+                print(f"  Error:    {result.get('error', 'Unknown error')}")
             print(f"  Duration: {result.get('duration', 'N/A')}")
             if result.get("traceback"):
                 print()

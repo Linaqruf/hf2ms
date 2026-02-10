@@ -570,51 +570,50 @@ def _verify_hf_upload(
         if siblings is None:
             result["verify_error"] = "Destination file listing unavailable (API returned no file data)"
             return result
-        if siblings is not None:
-            dest_files = len(siblings)
-            dest_size = sum(getattr(s, "size", 0) or 0 for s in siblings)
-            result["dest_files"] = dest_files
-            result["files_match"] = dest_files >= expected_file_count
-            if dest_size > 0:
-                result["dest_size"] = _format_size(dest_size)
+        dest_files = len(siblings)
+        dest_size = sum(getattr(s, "size", 0) or 0 for s in siblings)
+        result["dest_files"] = dest_files
+        result["files_match"] = dest_files >= expected_file_count
+        if dest_size > 0:
+            result["dest_size"] = _format_size(dest_size)
 
-            # SHA256 verification if source hashes provided
-            if source_sha256:
-                dest_sha_map = {}
-                dest_all_paths = set()
-                for s in siblings:
-                    dest_all_paths.add(s.rfilename)
-                    sha = None
-                    if s.lfs and isinstance(s.lfs, dict):
-                        sha = s.lfs.get("sha256")
-                    elif s.lfs and hasattr(s.lfs, "sha256"):
-                        sha = s.lfs.sha256
-                    if sha:
-                        dest_sha_map[s.rfilename] = sha
+        # SHA256 verification if source hashes provided
+        if source_sha256:
+            dest_sha_map = {}
+            dest_all_paths = set()
+            for s in siblings:
+                dest_all_paths.add(s.rfilename)
+                sha = None
+                if s.lfs and isinstance(s.lfs, dict):
+                    sha = s.lfs.get("sha256")
+                elif s.lfs and hasattr(s.lfs, "sha256"):
+                    sha = s.lfs.sha256
+                if sha:
+                    dest_sha_map[s.rfilename] = sha
 
-                matched = 0
-                skipped = 0
-                mismatched = []
-                missing = []
-                for path, src_sha in source_sha256.items():
-                    if path in PLATFORM_FILES:
-                        continue
-                    if path not in dest_all_paths:
-                        missing.append(path)
-                        continue
-                    dst_sha = dest_sha_map.get(path, "")
-                    if src_sha and dst_sha and src_sha == dst_sha:
-                        matched += 1
-                    elif src_sha and dst_sha and src_sha != dst_sha:
-                        mismatched.append(path)
-                    else:
-                        skipped += 1  # file exists but one or both hashes missing
+            matched = 0
+            skipped = 0
+            mismatched = []
+            missing = []
+            for path, src_sha in source_sha256.items():
+                if path in PLATFORM_FILES:
+                    continue
+                if path not in dest_all_paths:
+                    missing.append(path)
+                    continue
+                dst_sha = dest_sha_map.get(path, "")
+                if src_sha and dst_sha and src_sha == dst_sha:
+                    matched += 1
+                elif src_sha and dst_sha and src_sha != dst_sha:
+                    mismatched.append(path)
+                else:
+                    skipped += 1  # file exists but one or both hashes missing
 
-                result["sha256_matched"] = matched
-                result["sha256_skipped"] = skipped
-                result["sha256_mismatched"] = mismatched
-                result["sha256_missing"] = missing
-                result["verified"] = len(mismatched) == 0 and len(missing) == 0
+            result["sha256_matched"] = matched
+            result["sha256_skipped"] = skipped
+            result["sha256_mismatched"] = mismatched
+            result["sha256_missing"] = missing
+            result["verified"] = len(mismatched) == 0 and len(missing) == 0
 
         return result
     except Exception as e:
@@ -913,7 +912,7 @@ def _list_hf_files(
         lfs_paths = set()
         if lfs_proc.returncode == 0:
             for line in lfs_proc.stdout.strip().splitlines():
-                # Format: "<oid> <-> <path>" or "<oid> * <path>"
+                # Format: "<oid> - <path>" (pointer) or "<oid> * <path>" (downloaded)
                 parts = line.split(" ", 2)
                 if len(parts) >= 3:
                     path = parts[2].strip()
@@ -957,9 +956,10 @@ def _list_hf_files(
                     entry["sha256"] = sha256
                 manifest.append(entry)
 
+        actual_lfs = sum(1 for f in manifest if f["is_lfs"])
         print(f"  File manifest: {len(manifest)} files, "
-              f"{len(lfs_paths)} LFS, "
-              f"{len(manifest) - len(lfs_paths)} non-LFS, "
+              f"{actual_lfs} LFS, "
+              f"{len(manifest) - actual_lfs} non-LFS, "
               f"total {_format_size(sum(f['size'] for f in manifest))}")
         return manifest
     finally:
@@ -1016,7 +1016,7 @@ def _migrate_chunk(
             env=env, capture_output=True, text=True,
         )
         if proc.returncode != 0:
-            err = proc.stderr.replace(hf_token, "***")
+            err = proc.stderr.replace(hf_token, "***").replace(ms_token, "***")
             raise RuntimeError(f"git clone failed: {err}")
 
         print(f"  [Chunk {chunk_index}/{total_chunks}] Cloned structure")
@@ -1267,7 +1267,6 @@ def migrate_hf_to_ms(
             # the repo genuinely doesn't exist and git clone would also fail.
             is_access_blocked = (
                 "403" in full_error or "Forbidden" in full_error
-                or error_type == "LocalEntryNotFoundError"
             )
             if is_access_blocked:
                 print(f"       API blocked ({error_type}), falling back to git clone...")
@@ -1809,16 +1808,26 @@ def main(
             ]
 
             chunk_results = []
-            for chunk_result in _migrate_chunk.starmap(chunk_args):
-                idx = chunk_result.get("chunk_index", "?")
-                status = chunk_result.get("status", "error")
-                if status == "success":
-                    print(f"  OK   Chunk {idx}: {chunk_result['file_count']} files, "
-                          f"{_format_size(chunk_result['total_bytes'])}, "
-                          f"{chunk_result['duration']}")
-                else:
-                    print(f"  FAIL Chunk {idx}: {chunk_result.get('error', 'Unknown')}")
-                chunk_results.append(chunk_result)
+            try:
+                for chunk_result in _migrate_chunk.starmap(chunk_args):
+                    idx = chunk_result.get("chunk_index", "?")
+                    status = chunk_result.get("status", "error")
+                    if status == "success":
+                        print(f"  OK   Chunk {idx}: {chunk_result['file_count']} files, "
+                              f"{_format_size(chunk_result['total_bytes'])}, "
+                              f"{chunk_result['duration']}")
+                    else:
+                        print(f"  FAIL Chunk {idx}: {chunk_result.get('error', 'Unknown')}")
+                    chunk_results.append(chunk_result)
+            except Exception as starmap_err:
+                completed_indices = {r.get("chunk_index") for r in chunk_results}
+                all_indices = set(range(len(chunks)))
+                in_flight = sorted(all_indices - completed_indices)
+                print(f"\n  PARALLEL ERROR: {starmap_err}")
+                print(f"  {len(chunk_results)} chunk(s) completed before failure.")
+                if in_flight:
+                    print(f"  Status unknown for chunks: {in_flight}")
+                print("  Already-uploaded chunks are safe. Re-run with --parallel to retry.")
 
             failed = [r for r in chunk_results if r.get("status") != "success"]
             succeeded = [r for r in chunk_results if r.get("status") == "success"]
@@ -2071,8 +2080,13 @@ def batch(
                             else:
                                 info = hf_api.model_info(rid)
                             repo_privacy[rid] = getattr(info, "private", True)
-                        except Exception:
-                            repo_privacy[rid] = True  # default private
+                        except Exception as e:
+                            err_str = str(e).lower()
+                            if any(k in err_str for k in ("401", "403", "unauthorized", "forbidden", "authentication")):
+                                print(f"  ERROR: Authentication failed detecting visibility for {rid}: {e}")
+                                print("  Cannot proceed without valid credentials. Aborting batch.")
+                                return
+                            repo_privacy[rid] = True
                             print(f"    WARNING: Could not detect visibility for {rid}, defaulting to private")
                 except Exception:
                     for rid in hf_source_repos:
@@ -2096,7 +2110,12 @@ def batch(
                                 info = ms_api.get_model(rid)
                             ms_vis = info.get("visibility", 1) if isinstance(info, dict) else getattr(info, "visibility", 1)
                             repo_privacy[rid] = ms_vis != 5
-                        except Exception:
+                        except Exception as e:
+                            err_str = str(e).lower()
+                            if any(k in err_str for k in ("401", "403", "unauthorized", "forbidden", "authentication")):
+                                print(f"  ERROR: Authentication failed detecting visibility for {rid}: {e}")
+                                print("  Cannot proceed without valid credentials. Aborting batch.")
+                                return
                             repo_privacy[rid] = True
                             print(f"    WARNING: Could not detect visibility for {rid}, defaulting to private")
                 except Exception:

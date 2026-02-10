@@ -27,7 +27,7 @@ No files touch your machine. Modal provisions a container, downloads from the so
 
 - **Zero local storage** — everything transfers cloud-to-cloud on Modal containers
 - **Parallel chunked migration** — splits large repos across up to 100 containers for TB-scale transfers
-- **SHA256 verification** — every LFS file hash-checked end-to-end after upload
+- **SHA256 verification** — LFS file hashes checked after upload (skips platform-generated files)
 - **Auto git fallback** — if the Hub API fails (403, storage lock), seamlessly retries via `git clone` + `git lfs pull`
 - **Visibility preservation** — private repos stay private on the destination
 - **Fire & forget** — detached mode lets migrations continue after you disconnect

@@ -2,18 +2,13 @@
 name: migrate
 version: 1.4.0
 description: >-
-  This skill should be used when the user wants to migrate, transfer, push, copy,
-  or mirror repos between HuggingFace and ModelScope. Triggers on "migrate model",
-  "transfer to ModelScope", "push to HuggingFace", "copy from HF to MS",
-  "mirror model", "move dataset to ModelScope", "migrate space",
-  "upload to ModelScope", "download from ModelScope",
-  "sync repo between HuggingFace and ModelScope", "move this to modelscope",
-  "put this on huggingface", "copy from ModelScope to HuggingFace",
-  "batch migrate", "migrate multiple repos",
-  "migrate all my models", "bulk transfer", "parallel migration",
-  "migrate in background", "detached migration", "fire and forget",
-  "verify migration", "check migration integrity",
-  "clean up org after migration", or "inventory repos for migration".
+  This skill should be used when the user wants to migrate, transfer, copy,
+  or mirror repos between HuggingFace and ModelScope using Modal. Triggers on
+  "migrate model to ModelScope", "transfer dataset to HuggingFace",
+  "copy from HF to MS", "mirror repo", "move to modelscope",
+  "batch migrate multiple repos", "parallel migration",
+  "detached migration", "fire and forget",
+  "verify migration integrity", or "clean up org after migration".
 ---
 
 # HF-Modal-ModelScope Migration
@@ -141,7 +136,7 @@ Add `--detach` before the script path. The migration continues in Modal's cloud 
 - **Repo already exists on destination**: Single mode proceeds with a warning (files are updated/overwritten). Batch mode auto-skips existing repos.
 - **Private source repo**: Works if the source token has read access. Visibility is preserved.
 - **403 Forbidden (storage limit lockout)**: Auto-detected. Falls back to `git clone` + `git lfs pull`.
-- **Spaces to ModelScope**: Skipped with a warning. To force migration as a model repo, use `--repo-type model`.
+- **Spaces to ModelScope**: Skipped with a warning. To force migration as a model repo, use `--repo-type model` (only files transfer, not the app runtime).
 - **Large repos (>50GB)**: Use `--parallel`. Tested up to 58.5 GB single-container and 3.3 TB parallel (113 chunks).
 - **Very large repos (>1TB)**: Use `--parallel`. Chunk size auto-adjusts to keep within 100 chunks (e.g., 3.3 TB -> ~30 GB chunks -> 113 chunks, processed in waves of up to 100 concurrent containers).
 - **Batch with mismatched namespaces**: Batch mode does not support `--dest`. If source org differs from dest org, use individual `::main` runs with `--dest`.

@@ -1,6 +1,6 @@
 ---
 description: Migrate repos between HuggingFace and ModelScope via Modal
-argument-hint: "<source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach] [--parallel] [--chunk-size N]"
+argument-hint: "<source-repo> [--to hf|ms] [--repo-type model|dataset|space] [--dest namespace/name] [--detach] [--parallel] [--chunk-size N] [--use-git]"
 allowed-tools: [Bash, Read, Glob, AskUserQuestion]
 ---
 
@@ -14,11 +14,12 @@ Parse the user's argument string to extract:
 
 1. **Source repo** — required. Format: `namespace/repo-name` or with platform prefix `hf:namespace/repo` / `ms:namespace/repo`
 2. **--to** flag — destination platform: `hf` or `ms`. If source has a platform prefix, infer destination (hf→ms, ms→hf). If neither prefix nor --to, ask.
-3. **--type** flag — `model`, `dataset`, or `space`. If omitted, auto-detect.
+3. **--repo-type** flag — `model`, `dataset`, or `space`. If omitted, auto-detect.
 4. **--dest** flag — custom destination repo ID. Defaults to same as source.
 5. **--detach** flag — run in fire-and-forget mode. Migration continues in Modal's cloud even after the local process exits.
 6. **--parallel** flag — use parallel chunked migration. Splits the repo into chunks processed by independent containers (up to 100 concurrent). Best for repos over 50 GB.
 7. **--chunk-size** flag — chunk size in GB for parallel mode (default: 20). Auto-adjusted upward for very large repos to stay within 100 containers.
+8. **--use-git** flag — force git clone instead of Hub API for download. Useful when the source org is storage-locked (403).
 
 ### Examples
 
@@ -26,8 +27,8 @@ Parse the user's argument string to extract:
 |-------|--------|-----------|------|
 | `alice/my-model --to ms` | `alice/my-model` | HF→MS | auto-detect |
 | `hf:alice/my-model --to ms` | `alice/my-model` | HF→MS | auto-detect |
-| `damo/text-to-video --to hf --type model` | `damo/text-to-video` | MS→HF | model |
-| `alice/my-dataset --to ms --type dataset` | `alice/my-dataset` | HF→MS | dataset |
+| `damo/text-to-video --to hf --repo-type model` | `damo/text-to-video` | MS→HF | model |
+| `alice/my-dataset --to ms --repo-type dataset` | `alice/my-dataset` | HF→MS | dataset |
 | `alice/my-model --to ms --dest OrgName/model-v2` | `alice/my-model` | HF→MS (dest: `OrgName/model-v2`) | auto-detect |
 | `alice/my-model --to ms --detach` | `alice/my-model` | HF→MS (detached) | auto-detect |
 | `alice/big-dataset --to ms --parallel` | `alice/big-dataset` | HF→MS (parallel) | auto-detect |
@@ -147,6 +148,7 @@ Build the command from the parsed arguments:
 - Always include `--dest` with the confirmed destination from Step 3
 - Include `--parallel` if the user specified it or if the repo is very large (>50 GB). For large repos, proactively suggest parallel mode.
 - Include `--chunk-size` only if the user explicitly set it (default 20 is usually fine; auto-adjusted for large repos)
+- Include `--use-git` only if the user explicitly requested it or if a previous attempt failed with 403
 
 ### Step 6: Report Result
 

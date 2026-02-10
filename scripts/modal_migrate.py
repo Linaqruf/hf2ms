@@ -50,8 +50,8 @@ migrate_image = (
     .apt_install("git", "git-lfs")
     .run_commands("git lfs install")
     .pip_install(
-        "huggingface_hub",
-        "modelscope",
+        "huggingface_hub>=0.20.0",
+        "modelscope>=1.10.0",
     )
 )
 

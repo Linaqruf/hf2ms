@@ -372,7 +372,7 @@ api.list_repo_commits(repo_id, repo_type="model", revision="master",
 | List result | Iterable of typed objects | dict with `Models`/`datasets` key |
 | Dataset list key | N/A (iterable) | `result["datasets"]` (lowercase), items have `"id"` |
 | Model list key | N/A (iterable) | `result["Models"]` (uppercase), items have `"Name"` |
-| Repo exists | `api.repo_exists(repo_id, repo_type=)` | `api.repo_exists(repo_id, repo_type=, token=)` |
+| Repo exists | `api.repo_exists(repo_id, repo_type=)` | `api.repo_exists(repo_id, repo_type=)` |
 | Check model exists | `api.model_info()` + try/except | `api.repo_exists()` works directly |
 | Create dataset | `api.create_repo(id, repo_type="dataset")` | `api.create_dataset(name, namespace)` |
 | Snapshot download | `from huggingface_hub import snapshot_download` | `from modelscope.hub.snapshot_download import snapshot_download` |

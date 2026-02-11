@@ -30,3 +30,25 @@ For cleaning up an org with many repos (migrating to ModelScope, then deleting f
 - Re-packed datasets under different orgs (same images, different tar names) are duplicates even though SHA256 won't match -- compare directory structure and file counts instead
 - Public model repos (like released checkpoints) should typically stay on HF for community access
 - Private training datasets are the best candidates for migrate-then-delete
+
+## Deleting Repos from HuggingFace
+
+Use the `hf` CLI for clean, interactive deletion:
+
+```bash
+hf repo delete <namespace/repo-name> --repo-type <model|dataset|space>
+```
+
+No confirmation flag needed — it deletes immediately. Use `--missing-ok` to silently skip repos that don't exist.
+
+For Socratic cleanup (one-by-one with user confirmation), present each repo with size and visibility, ask delete/keep, then execute.
+
+## Detached Mode Verification
+
+When using `--detach` for batch migrations, the local process disconnects and **final logs are lost** (OK/FAIL summary, SHA256 results). To verify after a detached batch:
+
+1. **Check Modal dashboard**: https://modal.com/apps — look for completed/failed tasks
+2. **Verify repos exist on destination**: Use `api.repo_exists()` per repo
+3. **Run SHA256 verification separately** if needed (see above)
+
+`modal app logs <app-id>` only works while the app is running or recently finished — logs expire.

@@ -48,10 +48,10 @@ Follow these steps in order:
 
 ### Step 1: Validate Tokens
 
-Load environment variables from `.env` (if present), then run the token validation script:
+Run the token validation script (auto-loads `.env` via `load_dotenv()`):
 
 ```bash
-set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; python "${CLAUDE_PLUGIN_ROOT}/scripts/validate_tokens.py"
+python "${CLAUDE_PLUGIN_ROOT}/scripts/validate_tokens.py"
 ```
 
 If any tokens are missing or invalid, show the user the output and stop. Do NOT proceed without valid tokens.
@@ -127,18 +127,18 @@ Record whether the user chose detached mode — this affects Step 5 (command) an
 
 ### Step 5: Run Migration
 
-Load `.env` and execute the Modal migration command. Set `PYTHONIOENCODING=utf-8` (prevents Unicode errors from Modal CLI on Windows). This command handles single-repo migrations via `::main`. For batch migrations, use the CLI directly (see SKILL.md).
+Execute the Modal migration command. Set `PYTHONIOENCODING=utf-8` (prevents Unicode errors from Modal CLI on Windows). The scripts auto-load `.env` via `load_dotenv()` — no shell `source` needed. This command handles single-repo migrations via `::main`. For batch migrations, use the CLI directly (see SKILL.md).
 
 **Attached mode** (default):
 
 ```bash
-set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "<source-repo>" --to <hf|ms> --repo-type <type> --dest "<dest-repo>"
+PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "<source-repo>" --to <hf|ms> --repo-type <type> --dest "<dest-repo>"
 ```
 
 **Detached mode** (fire & forget) — prepend `--detach` before the script path:
 
 ```bash
-set -a && source "${CLAUDE_PLUGIN_ROOT}/.env" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8 modal run --detach "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "<source-repo>" --to <hf|ms> --repo-type <type> --dest "<dest-repo>"
+PYTHONIOENCODING=utf-8 modal run --detach "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "<source-repo>" --to <hf|ms> --repo-type <type> --dest "<dest-repo>"
 ```
 
 Build the command from the parsed arguments:

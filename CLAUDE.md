@@ -39,6 +39,13 @@ modal run scripts/modal_migrate.py::hello_world
 
 On Windows: prefix with `PYTHONIOENCODING=utf-8` to avoid Modal CLI Unicode errors.
 
+## Setup
+
+```bash
+pip install -r requirements.txt
+python scripts/validate_tokens.py
+```
+
 ## Architecture
 
 - `scripts/modal_migrate.py` — Modal app with all remote functions
@@ -57,3 +64,9 @@ On Windows: prefix with `PYTHONIOENCODING=utf-8` to avoid Modal CLI Unicode erro
 - **SHA256 verification**: LFS file hashes checked after upload (skips platform-generated files and files without extractable hashes)
 - **Progress monitoring**: Real-time directory size tracking during git downloads
 - **Size estimation**: ETA printed before migration starts
+
+## Current Status
+
+Version 1.4.0 — all core features shipped. v1.5.0 planned: developer onboarding, dry-run mode, selective migration.
+
+-> Development plan in SPEC.md (Phases 9-11)

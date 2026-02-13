@@ -85,37 +85,35 @@ Three sets of credentials must be available as environment variables:
 | `MODELSCOPE_TOKEN` | ModelScope | https://modelscope.ai/my/myaccesstoken |
 | `MODELSCOPE_DOMAIN` | ModelScope (optional) | Defaults to `modelscope.cn`. Set to `modelscope.ai` for international site. |
 
-Tokens can be set in the shell or placed in `${CLAUDE_PLUGIN_ROOT}/.env` — the validation script and `/migrate` command auto-load this file. Install `huggingface_hub` and `modelscope` locally for token validation. The migration itself runs entirely on Modal.
+Tokens go in `${CLAUDE_PLUGIN_ROOT}/.env` — the scripts auto-load this file via `load_dotenv()` (no shell `source` needed). Modal tokens must also be registered via `modal token set` (one-time setup). Install `huggingface_hub` and `modelscope` locally for token validation. The migration itself runs entirely on Modal.
 
 ## Executing a Migration
 
 Use the `/migrate` command for the guided interactive workflow. It handles token validation, parameter extraction, user confirmation, and execution.
 
-For direct CLI usage, all commands below use this prefix (sources `.env` and prevents Unicode errors on Windows):
-
-```bash
-PREFIX="set -a && source \"${CLAUDE_PLUGIN_ROOT}/.env\" 2>/dev/null; set +a; PYTHONIOENCODING=utf-8"
-```
+For direct CLI usage, set `PYTHONIOENCODING=utf-8` on Windows to prevent Modal CLI Unicode errors. The scripts auto-load `.env` via `load_dotenv()` — no shell `source` needed.
 
 **Single repo:**
 ```bash
-eval $PREFIX modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms
+PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms
 ```
 
 **Parallel chunked (large repos):**
 ```bash
-eval $PREFIX modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "org/big-dataset" --to ms --repo-type dataset --parallel --chunk-size 30
+PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "org/big-dataset" --to ms --repo-type dataset --parallel --chunk-size 30
 ```
 
-**Batch (one container per repo):**
+**Batch (one container per repo, up to 100 parallel):**
 ```bash
-eval $PREFIX modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::batch" --source "user/model1,user/model2" --to ms --repo-type model
+PYTHONIOENCODING=utf-8 modal run "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::batch" --source "user/model1,user/model2" --to ms --repo-type model
 ```
 
 **Detached (fire & forget):**
 ```bash
-eval $PREFIX modal run --detach "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms
+PYTHONIOENCODING=utf-8 modal run --detach "${CLAUDE_PLUGIN_ROOT}/scripts/modal_migrate.py::main" --source "username/my-model" --to ms
 ```
+
+**Note:** Detached mode loses the final batch summary (logs disconnect). Verify results afterward — see `verification-and-cleanup.md`.
 
 ### Key Differences: Single vs Batch
 
@@ -149,7 +147,7 @@ Add `--detach` before the script path. The migration continues in Modal's cloud 
 | "not found" or "404" | Verify the repo ID exists on the source platform |
 | "403" or "Forbidden" | Usually auto-handled (falls back to git clone). If persistent, check token permissions |
 | "timeout" | Use `--parallel` for large repos, or `--repo-type` to skip auto-detect |
-| "Modal" or "container" | Check Modal account: `modal token verify` |
+| "Modal" or "container" | Check Modal account: `modal profile list`. If "misconfigured", run `modal token set` with your token ID and secret |
 | "upload" errors | Check MODELSCOPE_TOKEN permissions |
 | "Unauthorized" | Namespace mismatch — use `::main` with `--dest` instead of batch |
 

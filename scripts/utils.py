@@ -4,6 +4,40 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
+
+
+def load_dotenv() -> None:
+    """Load .env file from plugin root into os.environ (without overwriting existing vars).
+
+    Custom implementation — no python-dotenv dependency required.
+    Searches CLAUDE_PLUGIN_ROOT first, then the repo root (parent of scripts/).
+    """
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
+    candidates = [
+        Path(plugin_root) / ".env" if plugin_root else None,
+        Path(__file__).resolve().parent.parent / ".env",
+    ]
+    for env_path in candidates:
+        if env_path and env_path.is_file():
+            try:
+                with open(env_path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        key, _, value = line.partition("=")
+                        key = key.strip()
+                        if key.startswith("export "):
+                            key = key[7:].strip()
+                        value = value.strip()
+                        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                            value = value[1:-1]
+                        if key and key not in os.environ:
+                            os.environ[key] = value
+            except (OSError, UnicodeDecodeError) as e:
+                print(f"  WARNING: Could not read {env_path}: {e}")
+            break
 
 
 def get_ms_domain() -> str:

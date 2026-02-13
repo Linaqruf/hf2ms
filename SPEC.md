@@ -121,6 +121,40 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 - [x] Batch migrations support detached mode
 - [x] Documentation includes monitoring commands (`modal app logs`, `modal app list`, `modal app stop`)
 
+#### Feature 8: Developer Onboarding (v1.5.0)
+**Description**: Proper `requirements.txt` and streamlined install flow for local dependencies.
+**User Story**: As a developer, I want a one-command setup so I can start migrating repos without guessing which packages to install.
+**Acceptance Criteria**:
+- [ ] `requirements.txt` listing all local dependencies (`modal`, `huggingface_hub`, `modelscope`)
+- [ ] README quick start includes `pip install -r requirements.txt`
+- [ ] Install verification step: `python scripts/validate_tokens.py` confirms deps are installed
+- [ ] `.env.example` already exists (keep as-is)
+
+#### Feature 9: Dry-Run Mode (v1.5.0)
+**Description**: Preview what would be transferred without actually downloading or uploading anything.
+**User Story**: As a developer, I want to see the file list and total size before committing to a migration, especially for large repos.
+**Acceptance Criteria**:
+- [ ] `--dry-run` flag on `main` entrypoint
+- [ ] Lists all files with individual sizes
+- [ ] Shows total file count, total size, and estimated duration
+- [ ] Works with both single and parallel mode
+- [ ] For HF source: reuses `_list_hf_files` (git clone structure, no LFS data)
+- [ ] For MS source: queries MS API for file listing
+- [ ] No actual download or upload happens
+- [ ] Exits after printing the preview
+
+#### Feature 10: Selective Migration (v1.5.0)
+**Description**: Filter which files to transfer using glob patterns.
+**User Story**: As a developer, I want to migrate only safetensors weights (skipping .bin/.pt) to save time and storage.
+**Acceptance Criteria**:
+- [ ] `--allow-patterns` flag — only transfer files matching these globs (comma-separated)
+- [ ] `--ignore-patterns` flag — skip files matching these globs (comma-separated)
+- [ ] Patterns use standard glob syntax (`*.safetensors`, `*.json`, `tokenizer*`)
+- [ ] Works in both single-container and parallel chunked mode
+- [ ] When combined with `--dry-run`, shows filtered file list
+- [ ] Filters applied after file manifest is built, before download
+- [ ] SHA256 verification respects the filter (only verifies transferred files)
+
 ### Future Scope (Post-MVP)
 1. ~~Batch migration~~ — **Done.** `batch` entrypoint with `starmap()` for parallel containers. Tested: 20 repos, ~252 GB.
 2. ~~Destination existence check~~ — **Done.** Single mode warns, batch mode auto-skips existing repos.
@@ -130,10 +164,10 @@ A Claude Code plugin that orchestrates cloud-to-cloud migration using Modal as a
 6. ~~Visibility preservation~~ — **Done.** Detects source visibility, creates destination with matching privacy setting.
 7. Programmatic spawn/poll pattern — Use `.spawn()` + `FunctionCall.from_id()` for async status checks within Claude (requires `modal deploy`)
 8. Model format conversion during migration (e.g., safetensors to GGUF)
-9. Selective file migration (`--allow-patterns` / `--ignore-patterns` flags)
+9. ~~Selective file migration~~ — **Planned for v1.5.0.** `--allow-patterns` / `--ignore-patterns` flags with glob syntax.
 10. Persistent Modal Volume for caching frequently transferred repos
 11. Bidirectional sync (keep repos in sync automatically)
-12. Dry-run mode (show what would be transferred without doing it)
+12. ~~Dry-run mode~~ — **Planned for v1.5.0.** `--dry-run` flag shows file list, sizes, and estimated duration.
 13. `--force` flag to overwrite existing destination repos in batch mode
 
 ### Out of Scope
@@ -446,15 +480,18 @@ The skill should trigger on:
 ### Slash Command: `/migrate`
 
 ```
-/migrate <source-repo> [--to hf|ms] [--type model|dataset|space] [--dest namespace/name] [--detach] [--parallel]
+/migrate <source-repo> [--to hf|ms] [--repo-type model|dataset|space] [--dest namespace/name] [--detach] [--parallel] [--chunk-size N] [--use-git] [--dry-run] [--allow-patterns GLOBS] [--ignore-patterns GLOBS]
 ```
 
 Examples:
 - `/migrate username/my-model --to ms`
-- `/migrate damo/text-to-video --to hf --type model`
-- `/migrate username/my-dataset --to ms --type dataset`
+- `/migrate damo/text-to-video --to hf --repo-type model`
+- `/migrate username/my-dataset --to ms --repo-type dataset`
 - `/migrate username/my-model --to ms --detach` (fire & forget)
-- `/migrate org/large-dataset --to ms --type dataset --parallel` (chunked parallel)
+- `/migrate org/large-dataset --to ms --repo-type dataset --parallel` (chunked parallel)
+- `/migrate org/big-model --to ms --dry-run` (preview files and sizes without transferring)
+- `/migrate org/big-model --to ms --allow-patterns '*.safetensors,*.json'` (selective)
+- `/migrate org/big-model --to ms --ignore-patterns '*.bin,*.pt'` (skip unwanted files)
 
 ---
 
@@ -544,6 +581,8 @@ Examples:
 | 3 | Space migration — ModelScope doesn't have "Spaces" equivalent | A) Skip space type for MS direction, B) Upload space files as a model repo | Affects feature completeness | Resolved — spaces to MS are skipped with a warning. ModelScope Studios are web/git only (SDK has `# TODO: support studio`). Users can force with `--repo-type model`. |
 | 4 | Large file handling — what if a repo has files >50GB? | A) Let it fail with timeout, B) Implement chunked/resumable upload | Affects reliability for large models | Resolved — `--parallel` mode splits repos across up to 100 containers. Tested: 3.3 TB (113 chunks). Single container tested up to 58.5 GB. |
 | 5 | Modal timeout — 3600s enough for large repos? | A) Use 3600s default, B) Make configurable | Affects large model transfers | Resolved — increased to 86400s (24h). With parallel mode, individual chunks finish much faster. |
+| 6 | Dry-run for MS source repos — how to list files without downloading? | A) Query MS API for file list, B) Use `snapshot_download` with `--dry-run` | Affects dry-run for MS→HF direction | Open |
+| 7 | Selective + parallel — filter before or after chunking? | A) Filter manifest before `_build_chunks`, B) Filter inside each chunk worker | Affects chunk distribution balance | Open — likely A (filter first, then chunk the filtered set) |
 
 ---
 
@@ -559,7 +598,7 @@ Examples:
 
 ## Project Status
 
-**Version 1.4.0** — All phases complete plus three post-MVP features shipped.
+**Version 1.4.0** — All phases complete plus three post-MVP features shipped. v1.5.0 planned.
 
 ### Changelog
 - **v1.0.0**: Core migration (Phases 1-5). Single + batch + detached mode.
@@ -567,6 +606,7 @@ Examples:
 - **v1.2.0**: Visibility preservation — private repos stay private on destination.
 - **v1.3.0**: Parallel chunked migration — `--parallel` flag, up to 100 containers, TB-scale repos.
 - **v1.4.0**: SHA256 verification — per-file hash comparison after upload using HF/MS APIs.
+- **v1.5.0** (planned): Developer onboarding, dry-run mode, selective migration.
 
 ### Post-MVP Features (shipped after Phase 5)
 
@@ -591,6 +631,40 @@ Examples:
 - [x] `_parse_lfs_pointer_full` — extract both size and SHA256 from LFS pointer files
 - [x] SHA256 passed through file manifest for parallel mode verification
 - [x] Tested: 1047/1047 matched (156 GB), 39/39 (175 GB), 59/59 (392 GB), 122/122 (613 GB), 184/184 (898 GB), 149/149 (1.0 TB), 673/673 (3.3 TB)
+
+### v1.5.0 Planned Features
+
+#### Phase 9: Developer Onboarding
+**Depends on**: Nothing
+- [ ] Create `requirements.txt` with local dependencies (`modal`, `huggingface_hub`, `modelscope`)
+- [ ] Update README quick start with `pip install -r requirements.txt`
+- [ ] Verify `validate_tokens.py` works after fresh `pip install -r requirements.txt`
+- [ ] Update CLAUDE.md with install instructions
+
+#### Phase 10: Dry-Run Mode
+**Depends on**: Phase 9 (onboarding should be done first)
+- [ ] Add `--dry-run` flag to `main` local entrypoint
+- [ ] For HF source: reuse `_list_hf_files` to get file manifest without downloading LFS data
+- [ ] For MS source: query MS API for file listing with sizes
+- [ ] Print file list with individual sizes, total count, total size, estimated duration
+- [ ] Skip download/upload steps — exit after printing preview
+- [ ] Works with `--parallel` (shows chunk plan without executing)
+- [ ] Works with `--allow-patterns`/`--ignore-patterns` (shows filtered preview)
+- [ ] Update `/migrate` command to support `--dry-run`
+- [ ] Update SKILL.md with dry-run documentation
+
+#### Phase 11: Selective Migration
+**Depends on**: Phase 10 (dry-run should exist so users can preview filtered results)
+- [ ] Add `--allow-patterns` flag (comma-separated globs, e.g., `*.safetensors,*.json`)
+- [ ] Add `--ignore-patterns` flag (comma-separated globs, e.g., `*.bin,*.pt`)
+- [ ] Filter file manifest after building, before download/chunking
+- [ ] Single-container mode: pass `allow_patterns`/`ignore_patterns` to `snapshot_download()` if supported, else filter post-download pre-upload
+- [ ] Parallel mode: filter manifest before `_build_chunks`, so chunks only contain selected files
+- [ ] SHA256 verification only checks transferred files (respects filter)
+- [ ] Update `/migrate` command argument-hint and parsing
+- [ ] Update SKILL.md with selective migration examples
+- [ ] Test: migrate only safetensors from a mixed repo
+- [ ] Test: ignore .bin files from a large model repo
 
 ---
 

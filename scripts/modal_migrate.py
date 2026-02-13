@@ -1195,7 +1195,7 @@ def _verify_parallel_upload(
     return verify
 
 
-@app.function(image=migrate_image, timeout=86400)
+@app.function(image=migrate_image, timeout=86400, max_containers=100)
 def migrate_hf_to_ms(
     hf_repo_id: str,
     ms_repo_id: str,
@@ -1342,7 +1342,7 @@ def migrate_hf_to_ms(
             print(f"WARNING: Failed to clean up {work_dir}: {e}")
 
 
-@app.function(image=migrate_image, timeout=86400)
+@app.function(image=migrate_image, timeout=86400, max_containers=100)
 def migrate_hf_to_ms_git(
     hf_repo_id: str,
     ms_repo_id: str,
@@ -1449,7 +1449,7 @@ def migrate_hf_to_ms_git(
             print(f"WARNING: Failed to clean up {work_dir}: {e}")
 
 
-@app.function(image=migrate_image, timeout=86400)
+@app.function(image=migrate_image, timeout=86400, max_containers=100)
 def migrate_ms_to_hf(
     ms_repo_id: str,
     hf_repo_id: str,
@@ -1603,7 +1603,9 @@ def main(
     """
     # Import utils here — only the local entrypoint needs them,
     # and they're not available inside the Modal container.
-    from utils import build_url, detect_direction, get_env_token, get_ms_domain, parse_repo_id
+    from utils import build_url, detect_direction, get_env_token, get_ms_domain, load_dotenv, parse_repo_id
+
+    load_dotenv()
 
     print()
     print("=" * 50)
@@ -1978,7 +1980,9 @@ def batch(
 
     Note: --parallel is not supported in batch mode (use ::main per-repo instead).
     """
-    from utils import detect_direction, get_env_token, get_ms_domain, parse_repo_id
+    from utils import detect_direction, get_env_token, get_ms_domain, load_dotenv, parse_repo_id
+
+    load_dotenv()
 
     try:
         repo_list = [r.strip() for r in source.split(",") if r.strip()]
